@@ -1,5 +1,8 @@
 # XNav Setup Guide
 
+> **New to XNav?** See the [User Manual](manual.md) for a complete walkthrough.
+> To build the ISO yourself on a Linux computer and flash with balenaEtcher, see [build_iso.md](build_iso.md).
+
 ## Hardware Requirements
 
 - **Raspberry Pi Compute Module 4** (CM4) - as used in Limelight 3
@@ -15,8 +18,15 @@
 
 ### Option A: Flash Pre-built ISO (Recommended)
 
-1. Download the XNav `.img.xz` image
+1. Download the XNav `.img.xz` image, or build it yourself — see [build_iso.md](build_iso.md).
 2. Flash to CM4 eMMC or SD card:
+
+   **Using balenaEtcher (easiest):**
+   - Download [balenaEtcher](https://etcher.balena.io/)
+   - Click **Flash from file** → select the `.img.xz` file
+   - Click **Select target** → choose the CM4 eMMC / SD card
+   - Click **Flash!** and wait for completion
+   - Full instructions: [build_iso.md → Flash with balenaEtcher](build_iso.md#3-flash-with-balenaetcher)
 
    **Using Raspberry Pi Imager:**
    - Open Raspberry Pi Imager
@@ -30,7 +40,7 @@
    ```
 
 3. Insert into Limelight 3 hardware
-4. Power on → wait ~2 minutes for first-boot installation
+4. Power on → wait ~3 minutes for first-boot installation
 5. Access dashboard: **http://xnav.local:5800** or **http://10.TE.AM.11:5800**
 
 ---
