@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Node / JS
+node_modules/
+
+# C++ build
+*.o
+*.a
+*.so
+*.dll
+*.exe
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+
+# Calibration (user-generated)
+calibration.json
+*.fmap
+
+# System / temp
+*.log
+*.tmp
+*.swp
+.DS_Store
+/tmp/
+
+# CodeQL artifacts
+_codeql_detected_source_root
+*/_codeql_build_dir/

@@ -1,0 +1,11 @@
+# XNav Vision Core Python Dependencies
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+pupil-apriltags>=1.0.4
+robotpy-ntcore>=2024.0.0
+flask>=3.0.0
+flask-socketio>=5.3.0
+RPi.GPIO>=0.7.1
+Pillow>=10.0.0
+gevent>=23.0.0
+gevent-websocket>=0.10.1

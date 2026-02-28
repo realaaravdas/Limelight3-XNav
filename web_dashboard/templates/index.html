@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>XNav Configuration Portal</title>
+  <link rel="stylesheet" href="/static/css/style.css"/>
+  <!-- Bootstrap 5 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        crossorigin="anonymous"/>
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"/>
+  <!-- Socket.IO -->
+  <script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.4/client-dist/socket.io.min.js"></script>
+</head>
+<body class="bg-dark text-light">
+
+<!-- ── Top Nav ─────────────────────────────────────────────────────────── -->
+<nav class="navbar navbar-dark bg-black border-bottom border-secondary px-3 py-2">
+  <div class="d-flex align-items-center gap-3">
+    <span class="navbar-brand mb-0 fw-bold text-warning" style="font-size:1.4rem;">
+      <i class="bi bi-camera-video-fill me-2"></i>XNav
+    </span>
+    <span class="badge bg-secondary" id="badge-status">●&nbsp;Starting</span>
+    <span class="badge bg-dark border border-secondary" id="badge-fps">-- FPS</span>
+    <span class="badge bg-dark border border-secondary" id="badge-latency">-- ms</span>
+    <span class="badge" id="badge-nt">NT: --</span>
+  </div>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-warning" onclick="toggleMatchMode()">
+      <i class="bi bi-lightning-fill me-1"></i><span id="matchmode-label">Match Mode: OFF</span>
+    </button>
+  </div>
+</nav>
+
+<!-- ── Main Layout ──────────────────────────────────────────────────────── -->
+<div class="d-flex" style="height:calc(100vh - 56px); overflow:hidden;">
+
+  <!-- Sidebar -->
+  <nav class="sidebar bg-black border-end border-secondary d-flex flex-column" style="width:200px;min-width:200px;">
+    <ul class="nav flex-column p-2 gap-1 mt-2" id="nav-tabs">
+      <li class="nav-item"><a class="nav-link text-light active" data-tab="overview" href="#"><i class="bi bi-grid-3x3-gap me-2"></i>Overview</a></li>
+      <li class="nav-item"><a class="nav-link text-light" data-tab="camera" href="#"><i class="bi bi-camera me-2"></i>Camera</a></li>
+      <li class="nav-item"><a class="nav-link text-light" data-tab="network" href="#"><i class="bi bi-wifi me-2"></i>Network</a></li>
+      <li class="nav-item"><a class="nav-link text-light" data-tab="lights" href="#"><i class="bi bi-lightbulb me-2"></i>Lights</a></li>
+      <li class="nav-item"><a class="nav-link text-light" data-tab="apriltag" href="#"><i class="bi bi-qr-code me-2"></i>AprilTags</a></li>
+      <li class="nav-item"><a class="nav-link text-light" data-tab="fieldmap" href="#"><i class="bi bi-map me-2"></i>Field Map</a></li>
+      <li class="nav-item"><a class="nav-link text-light" data-tab="offset" href="#"><i class="bi bi-geo-alt me-2"></i>Offset Point</a></li>
+      <li class="nav-item"><a class="nav-link text-light" data-tab="turret" href="#"><i class="bi bi-arrow-clockwise me-2"></i>Turret</a></li>
+      <li class="nav-item"><a class="nav-link text-light" data-tab="calibration" href="#"><i class="bi bi-rulers me-2"></i>Calibration</a></li>
+      <li class="nav-item"><a class="nav-link text-light" data-tab="system" href="#"><i class="bi bi-gear me-2"></i>System</a></li>
+    </ul>
+    <div class="mt-auto p-3 border-top border-secondary">
+      <div class="text-muted small">XNav v1.0</div>
+    </div>
+  </nav>
+
+  <!-- Content Area -->
+  <main class="flex-grow-1 overflow-auto p-4">
+
+    <!-- ── Overview ─────────────────────────────────────────────────── -->
+    <div id="tab-overview" class="tab-content">
+      <h4 class="mb-3"><i class="bi bi-grid-3x3-gap me-2 text-warning"></i>Overview</h4>
+      <div class="row g-3">
+        <!-- Live View -->
+        <div class="col-xl-7">
+          <div class="card bg-dark border-secondary h-100">
+            <div class="card-header d-flex justify-content-between">
+              <span>Live View</span>
+              <span class="badge bg-success" id="cam-status">●&nbsp;Active</span>
+            </div>
+            <div class="card-body p-1 text-center bg-black">
+              <img id="stream-img" src="/stream.mjpg" class="img-fluid rounded" style="max-height:400px;"
+                   onerror="this.src='/static/img/no_stream.png'"/>
+            </div>
+          </div>
+        </div>
+        <!-- Stats + Tags -->
+        <div class="col-xl-5">
+          <div class="card bg-dark border-secondary mb-3">
+            <div class="card-header">Detection Stats</div>
+            <div class="card-body">
+              <div class="row g-2 text-center">
+                <div class="col-6"><div class="stat-box"><div class="stat-val text-warning" id="stat-fps">--</div><div class="stat-lbl">FPS</div></div></div>
+                <div class="col-6"><div class="stat-box"><div class="stat-val text-info" id="stat-latency">--</div><div class="stat-lbl">Latency (ms)</div></div></div>
+                <div class="col-6"><div class="stat-box"><div class="stat-val text-success" id="stat-ntargets">0</div><div class="stat-lbl">Tags Detected</div></div></div>
+                <div class="col-6"><div class="stat-box"><div class="stat-val" id="stat-nt">--</div><div class="stat-lbl">NT Status</div></div></div>
+              </div>
+            </div>
+          </div>
+          <!-- Detected Tags Table -->
+          <div class="card bg-dark border-secondary">
+            <div class="card-header">Detected Tags</div>
+            <div class="card-body p-0">
+              <div class="table-responsive" style="max-height:200px;">
+                <table class="table table-dark table-sm table-hover mb-0">
+                  <thead><tr><th>ID</th><th>Dist(m)</th><th>TX°</th><th>TY°</th><th>Yaw°</th></tr></thead>
+                  <tbody id="tags-table-body">
+                    <tr><td colspan="5" class="text-center text-muted">No targets</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Robot Pose -->
+        <div class="col-md-6">
+          <div class="card bg-dark border-secondary">
+            <div class="card-header">Robot Pose (Field-Centric)</div>
+            <div class="card-body">
+              <div id="robot-pose-display" class="text-muted small">No field map loaded or no pose available.</div>
+            </div>
+          </div>
+        </div>
+        <!-- Offset Point -->
+        <div class="col-md-6">
+          <div class="card bg-dark border-secondary">
+            <div class="card-header">Offset Point</div>
+            <div class="card-body">
+              <div id="offset-display" class="text-muted small">Offset point not configured.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Camera ────────────────────────────────────────────────────── -->
+    <div id="tab-camera" class="tab-content d-none">
+      <h4 class="mb-3"><i class="bi bi-camera me-2 text-warning"></i>Camera Settings</h4>
+      <div class="card bg-dark border-secondary" style="max-width:600px;">
+        <div class="card-body">
+          <form id="form-camera">
+            <div class="mb-3"><label class="form-label">Camera Device</label>
+              <input type="text" class="form-control bg-dark text-light border-secondary" name="device" value="/dev/video0"/></div>
+            <div class="row g-3 mb-3">
+              <div class="col-4"><label class="form-label">Width</label>
+                <input type="number" class="form-control bg-dark text-light border-secondary" name="width" value="1280"/></div>
+              <div class="col-4"><label class="form-label">Height</label>
+                <input type="number" class="form-control bg-dark text-light border-secondary" name="height" value="720"/></div>
+              <div class="col-4"><label class="form-label">FPS</label>
+                <input type="number" class="form-control bg-dark text-light border-secondary" name="fps" value="90"/></div>
+            </div>
+            <div class="mb-3">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="auto_exposure" id="auto-exp"/>
+                <label class="form-check-label" for="auto-exp">Auto Exposure</label>
+              </div>
+            </div>
+            <div class="mb-3"><label class="form-label">Exposure: <span id="exp-val">100</span></label>
+              <input type="range" class="form-range" name="exposure" min="1" max="10000" value="100"
+                     oninput="document.getElementById('exp-val').textContent=this.value"/></div>
+            <div class="mb-3"><label class="form-label">Gain: <span id="gain-val">50</span></label>
+              <input type="range" class="form-range" name="gain" min="0" max="100" value="50"
+                     oninput="document.getElementById('gain-val').textContent=this.value"/></div>
+            <div class="mb-3"><label class="form-label">Brightness: <span id="bright-val">50</span></label>
+              <input type="range" class="form-range" name="brightness" min="0" max="100" value="50"
+                     oninput="document.getElementById('bright-val').textContent=this.value"/></div>
+            <div class="mb-3"><label class="form-label">Contrast: <span id="contrast-val">50</span></label>
+              <input type="range" class="form-range" name="contrast" min="0" max="100" value="50"
+                     oninput="document.getElementById('contrast-val').textContent=this.value"/></div>
+            <button type="submit" class="btn btn-warning">Save &amp; Apply</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Network ───────────────────────────────────────────────────── -->
+    <div id="tab-network" class="tab-content d-none">
+      <h4 class="mb-3"><i class="bi bi-wifi me-2 text-warning"></i>Network Settings</h4>
+      <div class="card bg-dark border-secondary" style="max-width:500px;">
+        <div class="card-body">
+          <form id="form-network">
+            <div class="mb-3"><label class="form-label">Team Number</label>
+              <input type="number" class="form-control bg-dark text-light border-secondary" name="team_number" placeholder="e.g. 1234"/></div>
+            <div class="mb-3"><label class="form-label">NT Server IP (override)</label>
+              <input type="text" class="form-control bg-dark text-light border-secondary" name="nt_server_ip" placeholder="10.TE.AM.2"/></div>
+            <div class="mb-3">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="use_dhcp" id="use-dhcp" checked/>
+                <label class="form-check-label" for="use-dhcp">Use DHCP</label>
+              </div>
+            </div>
+            <div class="mb-3"><label class="form-label">Static IP</label>
+              <input type="text" class="form-control bg-dark text-light border-secondary" name="static_ip" placeholder="192.168.1.xxx"/></div>
+            <div class="mb-3"><label class="form-label">Hostname</label>
+              <input type="text" class="form-control bg-dark text-light border-secondary" name="hostname" value="xnav"/></div>
+            <button type="submit" class="btn btn-warning">Save Network Settings</button>
+          </form>
+          <div class="alert alert-info mt-3 py-2 small"><i class="bi bi-info-circle me-1"></i>
+            Reboot required for network changes to take effect.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Lights ────────────────────────────────────────────────────── -->
+    <div id="tab-lights" class="tab-content d-none">
+      <h4 class="mb-3"><i class="bi bi-lightbulb me-2 text-warning"></i>Lights Settings</h4>
+      <div class="card bg-dark border-secondary" style="max-width:500px;">
+        <div class="card-body">
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="lights-enabled" onchange="setLights()"/>
+            <label class="form-check-label" for="lights-enabled">Lights Enabled</label>
+          </div>
+          <div class="mb-3"><label class="form-label">Mode</label>
+            <select class="form-select bg-dark text-light border-secondary" id="lights-mode" onchange="setLights()">
+              <option value="on">On</option>
+              <option value="off">Off</option>
+              <option value="blink">Blink</option>
+            </select>
+          </div>
+          <div class="mb-3"><label class="form-label">Brightness: <span id="lights-bright-val">100</span>%</label>
+            <input type="range" class="form-range" id="lights-brightness" min="0" max="100" value="100"
+                   oninput="document.getElementById('lights-bright-val').textContent=this.value; setLights()"/></div>
+          <div class="mb-3"><label class="form-label">GPIO Pin</label>
+            <input type="number" class="form-control bg-dark text-light border-secondary" id="lights-gpio" value="18"/></div>
+          <button class="btn btn-warning" onclick="saveLightsGpio()">Save GPIO Setting</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── AprilTag Settings ─────────────────────────────────────────── -->
+    <div id="tab-apriltag" class="tab-content d-none">
+      <h4 class="mb-3"><i class="bi bi-qr-code me-2 text-warning"></i>AprilTag Settings</h4>
+      <div class="card bg-dark border-secondary" style="max-width:600px;">
+        <div class="card-body">
+          <form id="form-apriltag">
+            <div class="mb-3"><label class="form-label">Tag Family</label>
+              <select class="form-select bg-dark text-light border-secondary" name="family">
+                <option value="tag36h11">tag36h11 (FRC 2024+)</option>
+                <option value="tag16h5">tag16h5</option>
+                <option value="tag25h9">tag25h9</option>
+                <option value="tagStandard41h12">tagStandard41h12</option>
+              </select>
+            </div>
+            <div class="mb-3"><label class="form-label">Tag Size (meters)</label>
+              <input type="number" step="0.001" class="form-control bg-dark text-light border-secondary" name="tag_size" value="0.1524"/></div>
+            <div class="mb-3"><label class="form-label">Quad Decimate (speed vs accuracy)</label>
+              <select class="form-select bg-dark text-light border-secondary" name="quad_decimate">
+                <option value="1.0">1.0 (best accuracy)</option>
+                <option value="1.5">1.5</option>
+                <option value="2.0" selected>2.0 (recommended)</option>
+                <option value="3.0">3.0 (fastest)</option>
+              </select>
+            </div>
+            <div class="mb-3"><label class="form-label">Threads</label>
+              <input type="number" class="form-control bg-dark text-light border-secondary" name="nthreads" value="4" min="1" max="8"/></div>
+            <div class="mb-3"><label class="form-label">Decode Sharpening</label>
+              <input type="number" step="0.05" class="form-control bg-dark text-light border-secondary" name="decode_sharpening" value="0.25" min="0" max="1"/></div>
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" name="refine_edges" id="refine-edges" checked/>
+              <label class="form-check-label" for="refine-edges">Refine Edges</label>
+            </div>
+            <button type="submit" class="btn btn-warning">Save &amp; Apply</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Field Map ─────────────────────────────────────────────────── -->
+    <div id="tab-fieldmap" class="tab-content d-none">
+      <h4 class="mb-3"><i class="bi bi-map me-2 text-warning"></i>Field Map</h4>
+      <div class="card bg-dark border-secondary" style="max-width:600px;">
+        <div class="card-body">
+          <p class="text-muted small">Upload a WPILib <code>.fmap</code> field map file to enable field-centric pose estimation.</p>
+          <div class="mb-3">
+            <label class="form-label">Upload .fmap File</label>
+            <input type="file" class="form-control bg-dark text-light border-secondary" id="fmap-file" accept=".fmap"/>
+          </div>
+          <button class="btn btn-warning" onclick="uploadFmap()"><i class="bi bi-upload me-1"></i>Upload Field Map</button>
+          <div id="fmap-status" class="mt-3"></div>
+          <div id="fmap-info" class="mt-3"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Offset Point ───────────────────────────────────────────────── -->
+    <div id="tab-offset" class="tab-content d-none">
+      <h4 class="mb-3"><i class="bi bi-geo-alt me-2 text-warning"></i>Offset Point</h4>
+      <div class="card bg-dark border-secondary" style="max-width:500px;">
+        <div class="card-body">
+          <p class="text-muted small">Define a 3D offset (in meters) from a specific tag. The system will calculate distances and angles to this point.</p>
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="offset-enabled"/>
+            <label class="form-check-label" for="offset-enabled">Enable Offset Point</label>
+          </div>
+          <div class="mb-3"><label class="form-label">Target Tag ID</label>
+            <input type="number" class="form-control bg-dark text-light border-secondary" id="offset-tag-id" value="1"/></div>
+          <div class="row g-2 mb-3">
+            <div class="col-4"><label class="form-label">X (m)</label>
+              <input type="number" step="0.001" class="form-control bg-dark text-light border-secondary" id="offset-x" value="0"/></div>
+            <div class="col-4"><label class="form-label">Y (m)</label>
+              <input type="number" step="0.001" class="form-control bg-dark text-light border-secondary" id="offset-y" value="0"/></div>
+            <div class="col-4"><label class="form-label">Z (m)</label>
+              <input type="number" step="0.001" class="form-control bg-dark text-light border-secondary" id="offset-z" value="0"/></div>
+          </div>
+          <button class="btn btn-warning" onclick="saveOffset()">Save Offset Point</button>
+          <hr class="border-secondary"/>
+          <div id="offset-result-live" class="mt-2"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Turret ────────────────────────────────────────────────────── -->
+    <div id="tab-turret" class="tab-content d-none">
+      <h4 class="mb-3"><i class="bi bi-arrow-clockwise me-2 text-warning"></i>Turret Settings</h4>
+      <div class="card bg-dark border-secondary" style="max-width:500px;">
+        <div class="card-body">
+          <p class="text-muted small">Enable turret mode to compensate pose calculations for a rotating camera mount. Feed the turret angle (degrees) via NT topic <code>/XNav/input/turretAngle</code>.</p>
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="turret-enabled"/>
+            <label class="form-check-label" for="turret-enabled">Enable Turret Compensation</label>
+          </div>
+          <div class="mb-3"><label class="form-label">Mount Angle Offset (degrees)</label>
+            <input type="number" step="0.1" class="form-control bg-dark text-light border-secondary" id="turret-offset" value="0"/></div>
+          <button class="btn btn-warning" onclick="saveTurret()">Save Turret Settings</button>
+          <div class="alert alert-info mt-3 py-2 small"><i class="bi bi-info-circle me-1"></i>
+            You can also toggle turret via NT: <code>/XNav/input/turretEnabled</code> (boolean)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Calibration ───────────────────────────────────────────────── -->
+    <div id="tab-calibration" class="tab-content d-none">
+      <h4 class="mb-3"><i class="bi bi-rulers me-2 text-warning"></i>Camera Calibration</h4>
+      <div class="row g-3">
+        <div class="col-lg-6">
+          <div class="card bg-dark border-secondary">
+            <div class="card-header">Checkerboard Calibration</div>
+            <div class="card-body">
+              <p class="text-muted small">Point the camera at a checkerboard from multiple angles. The system detects and collects frames automatically.</p>
+              <div class="row g-2 mb-3">
+                <div class="col-6"><label class="form-label">Board Rows (inner corners)</label>
+                  <input type="number" class="form-control bg-dark text-light border-secondary" id="cal-rows" value="6"/></div>
+                <div class="col-6"><label class="form-label">Board Cols</label>
+                  <input type="number" class="form-control bg-dark text-light border-secondary" id="cal-cols" value="9"/></div>
+              </div>
+              <div class="mb-3"><label class="form-label">Square Size (m)</label>
+                <input type="number" step="0.001" class="form-control bg-dark text-light border-secondary" id="cal-square" value="0.025"/></div>
+              <div class="mb-3"><label class="form-label">Target Frames</label>
+                <input type="number" class="form-control bg-dark text-light border-secondary" id="cal-target" value="20" min="5" max="100"/></div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-success" onclick="startCalibration()"><i class="bi bi-play-fill me-1"></i>Start Collection</button>
+                <button class="btn btn-secondary" onclick="stopCalibration()"><i class="bi bi-stop-fill me-1"></i>Stop</button>
+                <button class="btn btn-warning" id="btn-compute-cal" onclick="computeCalibration()" disabled>
+                  <i class="bi bi-calculator me-1"></i>Compute
+                </button>
+              </div>
+              <!-- Progress -->
+              <div class="mt-3">
+                <div class="d-flex justify-content-between mb-1">
+                  <span class="small" id="cal-status-text">Idle</span>
+                  <span class="small" id="cal-progress-text">0/20</span>
+                </div>
+                <div class="progress bg-secondary" style="height:8px;">
+                  <div class="progress-bar bg-warning" id="cal-progress-bar" style="width:0%"></div>
+                </div>
+              </div>
+              <div id="cal-result" class="mt-3"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <div class="card bg-dark border-secondary">
+            <div class="card-header">Calibration Preview</div>
+            <div class="card-body p-1 text-center bg-black">
+              <img id="calib-stream" src="" class="img-fluid rounded" style="max-height:320px;display:none;"/>
+              <div id="calib-no-stream" class="p-4 text-muted">Start collection to see preview</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── System ────────────────────────────────────────────────────── -->
+    <div id="tab-system" class="tab-content d-none">
+      <h4 class="mb-3"><i class="bi bi-gear me-2 text-warning"></i>System</h4>
+      <div class="row g-3">
+        <div class="col-md-5">
+          <div class="card bg-dark border-secondary">
+            <div class="card-header">Camera Mount Offset</div>
+            <div class="card-body">
+              <p class="text-muted small">Physical offset of camera from robot center (meters) and rotation (degrees).</p>
+              <form id="form-mount">
+                <div class="row g-2 mb-2">
+                  <div class="col-4"><label class="form-label small">X</label><input type="number" step="0.001" class="form-control form-control-sm bg-dark text-light border-secondary" name="x_offset" value="0"/></div>
+                  <div class="col-4"><label class="form-label small">Y</label><input type="number" step="0.001" class="form-control form-control-sm bg-dark text-light border-secondary" name="y_offset" value="0"/></div>
+                  <div class="col-4"><label class="form-label small">Z</label><input type="number" step="0.001" class="form-control form-control-sm bg-dark text-light border-secondary" name="z_offset" value="0"/></div>
+                </div>
+                <div class="row g-2 mb-3">
+                  <div class="col-4"><label class="form-label small">Roll°</label><input type="number" step="0.1" class="form-control form-control-sm bg-dark text-light border-secondary" name="roll" value="0"/></div>
+                  <div class="col-4"><label class="form-label small">Pitch°</label><input type="number" step="0.1" class="form-control form-control-sm bg-dark text-light border-secondary" name="pitch" value="0"/></div>
+                  <div class="col-4"><label class="form-label small">Yaw°</label><input type="number" step="0.1" class="form-control form-control-sm bg-dark text-light border-secondary" name="yaw" value="0"/></div>
+                </div>
+                <button type="submit" class="btn btn-warning btn-sm">Save</button>
+              </form>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card bg-dark border-secondary">
+            <div class="card-header">Power</div>
+            <div class="card-body d-flex flex-column gap-2">
+              <button class="btn btn-outline-warning" onclick="if(confirm('Reboot?')) sysAction('reboot')"><i class="bi bi-arrow-clockwise me-2"></i>Reboot</button>
+              <button class="btn btn-outline-danger" onclick="if(confirm('Shutdown?')) sysAction('shutdown')"><i class="bi bi-power me-2"></i>Shutdown</button>
+              <button class="btn btn-outline-info" onclick="sysAction('restart-vision')"><i class="bi bi-camera-video me-2"></i>Restart Vision</button>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-dark border-secondary">
+            <div class="card-header">Match Mode</div>
+            <div class="card-body">
+              <p class="text-muted small">Squeezes maximum performance from hardware.</p>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="sys-matchmode" onchange="setMatchModeFromCheckbox(this.checked)"/>
+                <label class="form-check-label" for="sys-matchmode">Enable Match Mode</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Toast notifications -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:9999;">
+  <div id="toast-container"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
