@@ -36,8 +36,6 @@ calibration.json
 .DS_Store
 /tmp/
 
-# Build artifacts
-*.img
-*.xz
-*.gz
-*.zip
+# CodeQL artifacts
+_codeql_detected_source_root
+*/_codeql_build_dir/
