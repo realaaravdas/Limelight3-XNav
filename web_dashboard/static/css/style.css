@@ -1,0 +1,119 @@
+/* XNav Dashboard Styles */
+
+:root {
+  --xnav-yellow: #ffc107;
+  --xnav-bg: #121212;
+  --xnav-card: #1e1e1e;
+  --xnav-border: #333;
+}
+
+body {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  background: var(--xnav-bg);
+}
+
+/* Sidebar */
+.sidebar {
+  overflow-y: auto;
+}
+.sidebar .nav-link {
+  border-radius: 8px;
+  font-size: 0.875rem;
+  transition: background 0.15s;
+}
+.sidebar .nav-link:hover,
+.sidebar .nav-link.active {
+  background: rgba(255, 193, 7, 0.15);
+  color: var(--xnav-yellow) !important;
+}
+
+/* Stat boxes */
+.stat-box {
+  background: #1a1a1a;
+  border-radius: 10px;
+  padding: 0.75rem 0.5rem;
+  border: 1px solid var(--xnav-border);
+}
+.stat-val {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.stat-lbl {
+  font-size: 0.7rem;
+  color: #888;
+  margin-top: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Cards */
+.card {
+  border-radius: 12px !important;
+}
+.card-header {
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  background: rgba(255,255,255,0.03) !important;
+  border-bottom: 1px solid var(--xnav-border) !important;
+}
+
+/* Tables */
+.table-dark {
+  --bs-table-bg: #1a1a1a;
+}
+
+/* Forms */
+.form-control, .form-select {
+  font-size: 0.875rem;
+}
+.form-control:focus, .form-select:focus {
+  border-color: var(--xnav-yellow) !important;
+  box-shadow: 0 0 0 0.2rem rgba(255,193,7,0.15) !important;
+}
+
+/* Badges */
+#badge-status.running { background: #198754 !important; }
+#badge-status.error   { background: #dc3545 !important; }
+#badge-nt.connected   { background: #0d6efd !important; }
+#badge-nt.disconnected{ background: #6c757d !important; }
+
+/* Stream image */
+#stream-img {
+  background: #000;
+  min-height: 200px;
+}
+
+/* Code text */
+code {
+  background: rgba(255,255,255,0.08);
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+  font-size: 0.875em;
+  color: #aef;
+}
+
+/* Progress bar */
+.progress { border-radius: 100px; }
+
+/* Toast */
+.toast {
+  background: #2a2a2a;
+  border: 1px solid var(--xnav-border);
+  color: #fff;
+  min-width: 260px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1a1a1a; }
+::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
+/* Animated pulse for live badge */
+@keyframes pulse {
+  0%   { opacity: 1; }
+  50%  { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+.live-pulse { animation: pulse 1.5s infinite; }

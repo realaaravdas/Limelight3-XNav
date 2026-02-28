@@ -1,0 +1,22 @@
+[Unit]
+Description=XNav Vision System
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/xnav/vision_core/src/main.py
+WorkingDirectory=/opt/xnav
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+Environment="XNAV_CONFIG=/etc/xnav/config.json"
+# CPU affinity: use cores 0-3 for vision
+CPUAffinity=0 1 2 3
+# Realtime priority
+Nice=-10
+IOSchedulingClass=realtime
+
+[Install]
+WantedBy=multi-user.target

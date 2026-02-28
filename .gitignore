@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Node / JS
+node_modules/
+
+# C++ build
+*.o
+*.a
+*.so
+*.dll
+*.exe
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+
+# Calibration (user-generated)
+calibration.json
+*.fmap
+
+# System / temp
+*.log
+*.tmp
+*.swp
+.DS_Store
+/tmp/
+
+# Build artifacts
+*.img
+*.xz
+*.gz
+*.zip

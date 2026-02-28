@@ -1,0 +1,17 @@
+[Unit]
+Description=XNav Web Dashboard
+After=network.target xnav-vision.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/xnav/web_dashboard/app.py
+WorkingDirectory=/opt/xnav
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment="XNAV_CONFIG=/etc/xnav/config.json"
+
+[Install]
+WantedBy=multi-user.target

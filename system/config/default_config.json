@@ -1,0 +1,71 @@
+{
+  "network": {
+    "team_number": 0,
+    "static_ip": "",
+    "use_dhcp": true,
+    "nt_server_ip": "",
+    "hostname": "xnav"
+  },
+  "camera": {
+    "device": "/dev/video0",
+    "width": 1280,
+    "height": 720,
+    "fps": 90,
+    "exposure": 100,
+    "gain": 50,
+    "brightness": 50,
+    "contrast": 50,
+    "auto_exposure": false,
+    "camera_index": 0
+  },
+  "lights": {
+    "enabled": true,
+    "brightness": 100,
+    "mode": "on",
+    "gpio_pin": 18
+  },
+  "apriltag": {
+    "family": "tag36h11",
+    "quad_decimate": 2.0,
+    "quad_sigma": 0.0,
+    "nthreads": 4,
+    "decode_sharpening": 0.25,
+    "refine_edges": true,
+    "tag_size": 0.1524
+  },
+  "calibration": {
+    "camera_matrix": null,
+    "dist_coeffs": null,
+    "calibration_file": "/etc/xnav/calibration.json",
+    "checkerboard_rows": 6,
+    "checkerboard_cols": 9,
+    "checkerboard_square_size": 0.025
+  },
+  "field_map": {
+    "fmap_file": "/etc/xnav/field.fmap",
+    "enabled": false
+  },
+  "turret": {
+    "enabled": false,
+    "nt_topic": "/XNav/input/turretAngle",
+    "mount_angle_offset": 0.0
+  },
+  "offset_point": {
+    "enabled": false,
+    "tag_id": 1,
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "match_mode": false,
+  "web_port": 5800,
+  "log_level": "INFO",
+  "camera_mount": {
+    "x_offset": 0.0,
+    "y_offset": 0.0,
+    "z_offset": 0.0,
+    "roll": 0.0,
+    "pitch": 0.0,
+    "yaw": 0.0
+  }
+}
