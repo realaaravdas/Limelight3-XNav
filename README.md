@@ -163,3 +163,7 @@ Edit via web dashboard or directly via SSH.
 ## License
 
 MIT License — see LICENSE file.
+
+---
+
+<img width="2752" height="1536" alt="Gemini_Generated_Image_dvjb3odvjb3odvjb" src="https://github.com/user-attachments/assets/e403eae7-d5cc-4b28-92aa-f362fbdd745b" />
