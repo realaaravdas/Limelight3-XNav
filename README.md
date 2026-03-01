@@ -1,5 +1,7 @@
 # Limelight3-XNav
 
+<img width="2752" height="1536" alt="Gemini_Generated_Image_8y01dk8y01dk8y01" src="https://github.com/user-attachments/assets/9c0705c2-9a6c-4031-8005-5ab7777a07a5" />
+
 **XNav** is a custom, headless AprilTag vision system for FRC robots, designed to run on Raspberry Pi Compute Module 4 hardware (as used in the Limelight 3). It communicates with the roboRIO via WPILib NetworkTables 4, features a web configuration dashboard, and includes a C++ client library for robot code.
 
 ---
