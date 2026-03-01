@@ -60,6 +60,16 @@
   "match_mode": false,
   "web_port": 5800,
   "log_level": "INFO",
+  "throttle": {
+    "fps": 0
+  },
+  "thermal": {
+    "temp_warn_c": 70.0,
+    "temp_hot_c": 75.0,
+    "temp_crit_c": 80.0,
+    "throttle_fps_hot": 15.0,
+    "throttle_fps_crit": 5.0
+  },
   "camera_mount": {
     "x_offset": 0.0,
     "y_offset": 0.0,

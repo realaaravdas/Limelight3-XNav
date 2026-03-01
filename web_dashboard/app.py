@@ -287,6 +287,26 @@ def calib_stream():
             time.sleep(0.1)
     return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
+# ─── Thermal & throttle ───────────────────────────────────────────────────────
+
+@app.route("/api/thermal")
+def api_thermal():
+    p = _get_pipeline()
+    if p:
+        return jsonify(p.thermal.get_status())
+    return jsonify({"temperature_c": 0.0, "state": "unknown"})
+
+@app.route("/api/throttle", methods=["GET"])
+def api_throttle_get():
+    return jsonify(get_cfg().get("throttle") or {"fps": 0})
+
+@app.route("/api/throttle", methods=["POST"])
+def api_throttle_post():
+    data = request.get_json(force=True)
+    fps = float(data.get("fps", 0))
+    get_cfg().update_section("throttle", {"fps": fps})
+    return jsonify({"ok": True, "fps": fps})
+
 # ─── Reboot / shutdown ────────────────────────────────────────────────────────
 
 @app.route("/api/system/reboot", methods=["POST"])
@@ -332,6 +352,9 @@ def _push_state_loop():
                     "targets": [_tag_to_dict(d) for d in dets],
                     "robot_pose": _robot_pose_to_dict(state.get("robot_pose")),
                     "offset_result": _offset_to_dict(state.get("offset_result")),
+                    "temperature_c": state.get("temperature_c", 0.0),
+                    "thermal_state": state.get("thermal_state", "unknown"),
+                    "throttle_fps": state.get("throttle_fps", 0.0),
                 })
         except Exception:
             pass
