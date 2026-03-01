@@ -33,7 +33,7 @@ function onTabActivated(tab) {
   if (tab === "fieldmap") loadFmapInfo();
   if (tab === "offset") loadOffset();
   if (tab === "turret") loadTurret();
-  if (tab === "system") loadMount();
+  if (tab === "system") { loadMount(); loadThrottle(); }
   if (tab === "calibration") startCalibrationPoll();
 }
 
@@ -46,6 +46,32 @@ function updateState(data) {
   document.getElementById("stat-fps").textContent = data.fps;
   document.getElementById("stat-latency").textContent = data.latency_ms;
   document.getElementById("stat-ntargets").textContent = data.num_targets;
+
+  // Temperature badge
+  if (data.temperature_c !== undefined) {
+    const tempBadge = document.getElementById("badge-temp");
+    const tempVal = data.temperature_c > 0 ? data.temperature_c.toFixed(1) + " °C" : "-- °C";
+    tempBadge.textContent = tempVal;
+    const state = data.thermal_state || "unknown";
+    tempBadge.className = "badge border " + (
+      state === "critical" ? "bg-danger border-danger" :
+      state === "hot"      ? "bg-warning text-dark border-warning" :
+      state === "warm"     ? "bg-warning text-dark border-warning" :
+      state === "ok"       ? "bg-dark border-secondary" :
+      "bg-dark border-secondary"
+    );
+    // Also update system tab thermal badge if visible
+    const sysBadge = document.getElementById("sys-thermal-badge");
+    if (sysBadge) {
+      sysBadge.textContent = tempVal + " [" + state + "]";
+      sysBadge.className = "badge " + (
+        state === "critical" ? "bg-danger" :
+        state === "hot"      ? "bg-warning text-dark" :
+        state === "warm"     ? "bg-warning text-dark" :
+        "bg-success"
+      );
+    }
+  }
 
   const ntBadge = document.getElementById("badge-nt");
   ntBadge.textContent = data.nt_connected ? "NT: ●" : "NT: ○";
@@ -362,6 +388,35 @@ function onCalibrationResult(data) {
   } else {
     el.innerHTML = `<div class="alert alert-danger py-2 small"><i class="bi bi-x-circle me-1"></i>${data.message}</div>`;
   }
+}
+
+// ── Throttle & Thermal ────────────────────────────────────────────────────────
+function loadThrottle() {
+  fetch("/api/throttle").then(r => r.json()).then(d => {
+    const fps = d.fps ?? 0;
+    document.getElementById("throttle-fps-range").value = fps;
+    document.getElementById("throttle-fps-val").textContent = fps;
+  });
+  fetch("/api/config/thermal").then(r => r.json()).then(d => {
+    if (!d || d.error) return;
+    const hotEl  = document.getElementById("sys-throttle-fps-hot");
+    const critEl = document.getElementById("sys-throttle-fps-crit");
+    const warnTEl = document.getElementById("sys-temp-warn");
+    const critTEl = document.getElementById("sys-temp-crit");
+    if (hotEl)   hotEl.textContent  = d.throttle_fps_hot  ?? "--";
+    if (critEl)  critEl.textContent = d.throttle_fps_crit ?? "--";
+    if (warnTEl) warnTEl.textContent = d.temp_warn_c ?? "--";
+    if (critTEl) critTEl.textContent = d.temp_crit_c ?? "--";
+  });
+}
+
+function saveThrottle() {
+  const fps = parseInt(document.getElementById("throttle-fps-range").value) || 0;
+  fetch("/api/throttle", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({fps})
+  }).then(() => showToast(fps > 0 ? `Throttle set to ${fps} FPS` : "Throttle disabled", "info"));
 }
 
 // ── System actions ────────────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ from nt_publisher import NTPublisher
 from fmap_loader import load_fmap
 from calibration import CalibrationManager
 from lights_manager import LightsManager
+from thermal_manager import ThermalManager
 
 # ── Shared state (accessed by web dashboard) ──────────────────────────────────
 _state = {
@@ -32,6 +33,9 @@ _state = {
     "latency_ms": 0.0,
     "status": "starting",
     "calibration_preview": None,  # latest JPEG bytes for calibration preview
+    "temperature_c": 0.0,
+    "thermal_state": "unknown",
+    "throttle_fps": 0.0,
 }
 _state_lock = threading.Lock()
 
@@ -70,8 +74,13 @@ class VisionPipeline:
         self._nt = NTPublisher(self._cfg)
         self._calibration = CalibrationManager(self._cfg)
         self._lights = LightsManager(self._cfg)
+        self._thermal = ThermalManager(self._cfg)
         self._field_map = None
         self._running = False
+
+        # Throttle state
+        self._throttle_lock = threading.Lock()
+        self._last_process_time: float = 0.0
 
         # Register config change handler
         self._cfg.register_callback(self._on_config_change)
@@ -84,6 +93,7 @@ class VisionPipeline:
         self.nt = self._nt
         self.calibration = self._calibration
         self.lights = self._lights
+        self.thermal = self._thermal
 
     def start(self):
         self._running = True
@@ -94,6 +104,7 @@ class VisionPipeline:
         # Start subsystems
         self._nt.start()
         self._camera.start()
+        self._thermal.start()
 
         update_shared_state(status="running")
         self._nt.publish_status("running")
@@ -106,6 +117,7 @@ class VisionPipeline:
         self._running = False
         self._camera.stop()
         self._nt.stop()
+        self._thermal.stop()
         self._lights.cleanup()
         update_shared_state(status="stopped")
         logging.getLogger(__name__).info("XNav vision pipeline stopped")
@@ -122,6 +134,16 @@ class VisionPipeline:
     def _on_frame(self, frame, gray, timestamp):
         if not self._running:
             return
+
+        # ── Throttle gate ──────────────────────────────────────────────
+        effective_fps = self._get_effective_throttle_fps()
+        if effective_fps > 0:
+            min_interval = 1.0 / effective_fps
+            now = time.monotonic()
+            with self._throttle_lock:
+                if (now - self._last_process_time) < min_interval:
+                    return
+                self._last_process_time = now
 
         t0 = time.monotonic()
 
@@ -162,13 +184,17 @@ class VisionPipeline:
             self._calibration.add_frame(gray)
 
         # Update shared state for web dashboard
+        thermal_status = self._thermal.get_status()
         update_shared_state(
             detections=detections,
             robot_pose=robot_pose,
             offset_result=offset_result,
             fps=fps,
             latency_ms=latency_ms,
-            status="running"
+            status="running",
+            temperature_c=thermal_status["temperature_c"],
+            thermal_state=thermal_status["state"],
+            throttle_fps=effective_fps,
         )
 
         # Publish to NT
@@ -188,6 +214,18 @@ class VisionPipeline:
             self._detector.reload_config()
         elif section == "lights":
             pass  # LightsManager reads from cfg directly
+
+    def _get_effective_throttle_fps(self) -> float:
+        """Return the effective processing throttle FPS (manual or thermal auto-throttle).
+        Returns 0.0 when no throttle is active (process every frame)."""
+        throttle_cfg = self._cfg.get("throttle") or {}
+        manual_fps = float(throttle_cfg.get("fps", 0))
+        auto_fps = self._thermal.get_auto_throttle_fps()
+        # Use the more restrictive of the two (lower value = more throttling,
+        # ensuring both the manual cap and the thermal cap are respected)
+        if manual_fps > 0 and auto_fps > 0:
+            return min(manual_fps, auto_fps)
+        return manual_fps or auto_fps
 
     def _reload_fmap(self):
         fm_cfg = self._cfg.get("field_map") or {}
