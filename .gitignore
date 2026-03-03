@@ -1,41 +1,46 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
 .Python
 venv/
+env/
+ENV/
 .venv/
-*.egg-info/
-dist/
-build/
-.eggs/
 
-# Node / JS
-node_modules/
-
-# C++ build
-*.o
-*.a
-*.so
-*.dll
-*.exe
-cmake-build-*/
-CMakeFiles/
-CMakeCache.txt
-Makefile
-
-# Calibration (user-generated)
-calibration.json
-*.fmap
-
-# System / temp
-*.log
-*.tmp
+# IDE
+.vscode/
+.idea/
 *.swp
+*.swo
+*~
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Build artifacts
+*.img
+*.img.xz
+*.iso
+*.dmg
+
+# Wheelhouse (optional - can be git-ignored or included if desired)
+/system/wheelhouse/
 /tmp/
 
-# CodeQL artifacts
-_codeql_detected_source_root
-*/_codeql_build_dir/
+# Logs
+*.log
+
+# Test coverage
+.coverage
+htmlcov/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# pytest
+.pytest_cache/

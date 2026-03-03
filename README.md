@@ -35,7 +35,7 @@
 
 **Note:** On first boot, the device will run a setup script that:
 - Creates a Python virtual environment
-- Installs all dependencies
+- Installs all dependencies from **pre-bundled wheels** (no internet required)
 - Configures and starts services
 
 You can monitor progress via SSH:
@@ -43,6 +43,8 @@ You can monitor progress via SSH:
 ssh root@xnav.local
 cat /var/log/xnav-firstboot.log
 ```
+
+The ISO includes all Python dependencies pre-downloaded, so **no internet connection** is required during setup.
 
 ### Manual Install (on existing Raspberry Pi OS)
 
@@ -53,7 +55,7 @@ sudo bash /opt/xnav-src/system/scripts/setup.sh
 
 ### Building Your Own Image
 
-See [Build Instructions](docs/build_instructions.md) for detailed steps to build a flashable ISO image.
+See [Build Instructions](docs/build_offline.md) for detailed steps to build a flashable ISO image. The build process pre-bundles all Python dependencies, so the final image works completely offline.
 
 ---
 
