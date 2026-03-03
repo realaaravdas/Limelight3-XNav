@@ -8,7 +8,7 @@
 
 set -e
 
-XNAV_VERSION="1.0.0"
+XNAV_VERSION="1.1.0"
 OUTPUT_IMG="xnav-${XNAV_VERSION}.img"
 WORK_DIR="/tmp/xnav-build"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
