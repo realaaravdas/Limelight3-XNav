@@ -30,21 +30,15 @@
 1. Flash `xnav-1.0.0.img.xz` to your CM4 / SD card using [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
 2. Insert into Limelight 3 / Raspberry Pi CM4 carrier board
 3. Connect to robot network, power on
-4. **Wait 5-10 minutes** for first-boot setup to complete (services will start automatically)
-5. Open **http://xnav.local:5800** or **http://10.TE.AM.11:5800**
+4. Open **http://xnav.local:5800** or **http://10.TE.AM.11:5800**
 
-**Note:** On first boot, the device will run a setup script that:
-- Creates a Python virtual environment
-- Installs all dependencies from **pre-bundled wheels** (no internet required)
-- Configures and starts services
+**No internet connection required.** All Python packages are bundled in the image and pre-installed during the build process. Services start automatically on boot with no first-boot installation delay.
 
-You can monitor progress via SSH:
-```bash
-ssh root@xnav.local
-cat /var/log/xnav-firstboot.log
-```
-
-The ISO includes all Python dependencies pre-downloaded, so **no internet connection** is required during setup.
+> **Fallback:** If the image was built without QEMU chroot support, a first-boot script runs once to install packages from the bundled wheel files (offline). This takes 2-5 minutes. You can monitor progress via SSH:
+> ```bash
+> ssh root@xnav.local
+> cat /var/log/xnav-firstboot.log
+> ```
 
 ### Manual Install (on existing Raspberry Pi OS)
 
