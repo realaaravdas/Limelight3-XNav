@@ -82,8 +82,8 @@ ROOT_OFFSET=$(parted "$OUTPUT_IMG" -s unit B print | awk '/^ 2/{print $2}' | tr 
 log "Boot partition offset: $BOOT_OFFSET"
 log "Root partition offset: $ROOT_OFFSET"
 
-# Increase image size by 2GB for XNav
-truncate -s +2G "$OUTPUT_IMG"
+# Increase image size by 3GB for XNav (extra space for venv)
+truncate -s +3G "$OUTPUT_IMG"
 parted "$OUTPUT_IMG" -s resizepart 2 100%
 
 # Mount partitions
@@ -98,6 +98,20 @@ mount "${LOOP}p2" "$WORK_DIR/mnt/root"
 e2fsck -f "${LOOP}p2" || true
 resize2fs "${LOOP}p2"
 
+# ── Prepare Python environment offline ─────────────────────────────────────────
+log "Preparing Python packages for offline installation..."
+
+# Build a temporary venv on the host to download packages
+TEMP_VENV=$(mktemp -d)
+python3 -m venv "$TEMP_VENV"
+source "$TEMP_VENV/bin/activate"
+
+log "Downloading Python packages (this may take a while)..."
+pip install --upgrade pip -q
+pip download -r "$REPO_ROOT/vision_core/requirements.txt" --dest "$TEMP_VENV/wheels" --prefer-binary
+
+deactivate
+
 # ── Inject XNav files ────────────────────────────────────────────────────────
 log "Injecting XNav files..."
 
@@ -111,6 +125,11 @@ cp "$REPO_ROOT/system/config/default_config.json" "$ROOT/etc/xnav/config.json"
 cp "$REPO_ROOT/system/services/xnav-vision.service" "$ROOT/etc/systemd/system/"
 cp "$REPO_ROOT/system/services/xnav-dashboard.service" "$ROOT/etc/systemd/system/"
 
+# Copy pre-downloaded wheels
+log "Copying pre-downloaded Python wheels..."
+mkdir -p "$ROOT/opt/xnav/wheels"
+cp "$TEMP_VENV"/wheels/*.whl "$ROOT/opt/xnav/wheels/"
+
 # Enable services via symlinks
 mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants"
 ln -sf /etc/systemd/system/xnav-vision.service \
@@ -118,10 +137,10 @@ ln -sf /etc/systemd/system/xnav-vision.service \
 ln -sf /etc/systemd/system/xnav-dashboard.service \
   "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-dashboard.service" 2>/dev/null || true
 
-# Create first-boot install script
+# Create first-boot install script (uses pre-downloaded wheels)
 cat > "$ROOT/etc/xnav/first_boot.sh" << 'FIRSTBOOT'
 #!/bin/bash
-# Runs once on first boot to complete installation
+# Runs once on first boot to complete installation (OFFLINE MODE)
 set -e
 
 # Log file
@@ -139,10 +158,10 @@ echo "Creating Python virtual environment..."
 python3 -m venv venv
 source venv/bin/activate
 
-# Install Python packages
-echo "Installing Python packages (this may take several minutes)..."
+# Install Python packages from pre-downloaded wheels (OFFLINE)
+echo "Installing Python packages from pre-bundled wheels..."
 pip install --upgrade pip -q
-pip install -r /opt/xnav/vision_core/requirements.txt -q
+pip install --no-index --find-links=/opt/xnav/wheels -r /opt/xnav/vision_core/requirements.txt
 
 # Update service files to use venv
 echo "Updating systemd service files..."
@@ -179,7 +198,7 @@ systemctl status xnav-dashboard.service --no-pager || true
 echo ""
 
 # Mark done
-echo "First-boot setup complete!"
+echo "First-boot setup complete! (Offline mode)"
 echo "Dashboard: http://xnav.local:5800"
 echo "========================================="
 rm -f /etc/xnav/first_boot.sh
@@ -232,6 +251,9 @@ cat > "$NETWORK_CFG" << 'NETEOF'
 auto eth0
 iface eth0 inet dhcp
 NETEOF
+
+# Clean up temporary venv
+rm -rf "$TEMP_VENV"
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 log "Unmounting..."

@@ -95,7 +95,16 @@ source "$XNAV_DIR/venv/bin/activate"
 
 log "Installing Python packages (this may take a while)..."
 pip install --upgrade pip -q
-pip install -r "$XNAV_DIR/vision_core/requirements.txt" -q
+
+# Try to use pre-downloaded wheels if available (offline mode)
+if [ -d "$XNAV_DIR/wheels" ] && [ "$(ls -A $XNAV_DIR/wheels/*.whl 2>/dev/null)" ]; then
+    log "Installing from pre-downloaded wheels (offline mode)..."
+    pip install --no-index --find-links="$XNAV_DIR/wheels" -r "$XNAV_DIR/vision_core/requirements.txt" -q
+else
+    # Fallback to online installation
+    log "Installing from PyPI (online mode)..."
+    pip install -r "$XNAV_DIR/vision_core/requirements.txt" -q
+fi
 deactivate
 
 # Update service scripts to use venv (only the installed copies)
