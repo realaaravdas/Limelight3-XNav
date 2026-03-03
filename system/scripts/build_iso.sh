@@ -245,6 +245,7 @@ disable_camera_led=1
 BOOTEOF
 
 # Network configuration - use DHCP for eth0
+mkdir -p "$ROOT/etc/network/interfaces.d"
 NETWORK_CFG="$ROOT/etc/network/interfaces.d/eth0"
 cat > "$NETWORK_CFG" << 'NETEOF'
 # XNav Network Configuration - eth0 gets IP via DHCP from robot
