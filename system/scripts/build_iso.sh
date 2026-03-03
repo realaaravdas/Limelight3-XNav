@@ -106,9 +106,36 @@ TEMP_VENV=$(mktemp -d)
 python3 -m venv "$TEMP_VENV"
 source "$TEMP_VENV/bin/activate"
 
-log "Downloading Python packages (this may take a while)..."
+log "Downloading Python packages for ARM64 (this may take a while)..."
 pip install --upgrade pip -q
-pip download -r "$REPO_ROOT/vision_core/requirements.txt" --dest "$TEMP_VENV/wheels" --prefer-binary
+
+# Detect host architecture and request correct platform wheels
+HOST_ARCH=$(uname -m)
+if [ "$HOST_ARCH" = "aarch64" ] || [ "$HOST_ARCH" = "arm64" ]; then
+  # Native ARM64 build machine - pip downloads correct architecture automatically
+  pip download \
+    -r "$REPO_ROOT/vision_core/requirements.txt" \
+    --dest "$TEMP_VENV/wheels" \
+    --prefer-binary
+else
+  # Cross-platform build (e.g., x86_64 host) - explicitly request ARM64 wheels
+  log "Cross-platform build detected ($HOST_ARCH -> aarch64), requesting ARM64 wheels..."
+  pip download \
+    -r "$REPO_ROOT/vision_core/requirements.txt" \
+    --dest "$TEMP_VENV/wheels" \
+    --prefer-binary \
+    --platform manylinux_2_17_aarch64 \
+    --platform linux_aarch64 \
+    --python-version 311 \
+    --only-binary :all: || {
+      log "WARN: Could not download all ARM64 binary wheels, retrying without platform restriction..."
+      rm -f "$TEMP_VENV/wheels"/*.whl 2>/dev/null || true
+      pip download \
+        -r "$REPO_ROOT/vision_core/requirements.txt" \
+        --dest "$TEMP_VENV/wheels" \
+        --prefer-binary
+    }
+fi
 
 deactivate
 
@@ -130,6 +157,62 @@ log "Copying pre-downloaded Python wheels..."
 mkdir -p "$ROOT/opt/xnav/wheels"
 cp "$TEMP_VENV"/wheels/*.whl "$ROOT/opt/xnav/wheels/"
 
+# ── Pre-install Python packages via QEMU chroot (immediate boot support) ─────
+# If qemu-aarch64-static is available, install packages now so the device
+# can start services immediately on first boot without any pip step.
+CHROOT_INSTALLED=false
+QEMU_BINARY=""
+for q in /usr/bin/qemu-aarch64-static /usr/local/bin/qemu-aarch64-static; do
+  [ -f "$q" ] && QEMU_BINARY="$q" && break
+done
+
+if [ -z "$QEMU_BINARY" ] && command -v apt-get &>/dev/null; then
+  log "Installing qemu-user-static for ARM64 chroot support..."
+  apt-get install -y -qq qemu-user-static 2>&1 | tail -3 || log "WARN: qemu-user-static installation failed"
+  [ -f "/usr/bin/qemu-aarch64-static" ] && QEMU_BINARY="/usr/bin/qemu-aarch64-static"
+elif [ -z "$QEMU_BINARY" ]; then
+  log "WARN: apt-get not available, cannot install qemu-user-static"
+fi
+
+if [ -n "$QEMU_BINARY" ]; then
+  log "Pre-installing Python packages in ARM64 chroot (no first-boot install needed)..."
+  cp "$QEMU_BINARY" "$ROOT/usr/bin/qemu-aarch64-static"
+
+  # Mount essential filesystems for chroot
+  mount --bind /proc    "$ROOT/proc"    2>/dev/null || true
+  mount --bind /sys     "$ROOT/sys"     2>/dev/null || true
+  mount --bind /dev     "$ROOT/dev"     2>/dev/null || true
+  mount --bind /dev/pts "$ROOT/dev/pts" 2>/dev/null || true
+
+  chroot "$ROOT" /bin/bash -ec '
+    python3 -m venv /opt/xnav/venv
+    /opt/xnav/venv/bin/pip install --upgrade pip -q
+    /opt/xnav/venv/bin/pip install \
+      --no-index --find-links=/opt/xnav/wheels \
+      -r /opt/xnav/vision_core/requirements.txt -q
+  ' && CHROOT_INSTALLED=true || {
+    log "WARN: QEMU chroot install failed (check ARM64 wheel compatibility), will use first-boot install"
+  }
+
+  # Unmount filesystems
+  for mnt in "$ROOT/dev/pts" "$ROOT/dev" "$ROOT/sys" "$ROOT/proc"; do
+    umount "$mnt" 2>/dev/null || true
+  done
+  rm -f "$ROOT/usr/bin/qemu-aarch64-static"
+
+  if $CHROOT_INSTALLED; then
+    log "Python packages pre-installed - services will start immediately on boot"
+    # Point service files at the pre-installed venv and remove the wait-for-firstboot delays
+    sed -i \
+      -e "s|ExecStart=/usr/bin/python3|ExecStart=/opt/xnav/venv/bin/python3|g" \
+      -e "/ExecStartPre=\/bin\/sleep/d" \
+      "$ROOT/etc/systemd/system/xnav-vision.service" \
+      "$ROOT/etc/systemd/system/xnav-dashboard.service"
+  fi
+else
+  log "qemu-aarch64-static not available - packages will be installed from bundled wheels on first boot"
+fi
+
 # Enable services via symlinks
 mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants"
 ln -sf /etc/systemd/system/xnav-vision.service \
@@ -137,7 +220,7 @@ ln -sf /etc/systemd/system/xnav-vision.service \
 ln -sf /etc/systemd/system/xnav-dashboard.service \
   "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-dashboard.service" 2>/dev/null || true
 
-# Create first-boot install script (uses pre-downloaded wheels)
+# Create first-boot install script (uses pre-downloaded wheels, skips if venv pre-installed)
 cat > "$ROOT/etc/xnav/first_boot.sh" << 'FIRSTBOOT'
 #!/bin/bash
 # Runs once on first boot to complete installation (OFFLINE MODE)
@@ -153,40 +236,40 @@ echo "========================================="
 
 cd /opt/xnav
 
-# Create virtual environment
-echo "Creating Python virtual environment..."
-python3 -m venv venv
-source venv/bin/activate
+# Check if Python packages were already pre-installed during ISO build
+if [ -f /opt/xnav/venv/bin/python3 ]; then
+  echo "Python venv pre-installed - skipping package installation"
+else
+  # Install Python packages from pre-downloaded wheels (OFFLINE, no internet needed)
+  echo "Creating Python virtual environment..."
+  python3 -m venv venv
 
-# Install Python packages from pre-downloaded wheels (OFFLINE)
-echo "Installing Python packages from pre-bundled wheels..."
-pip install --upgrade pip -q
-pip install --no-index --find-links=/opt/xnav/wheels -r /opt/xnav/vision_core/requirements.txt
+  echo "Installing Python packages from pre-bundled wheels (offline)..."
+  venv/bin/pip install --upgrade pip -q
+  venv/bin/pip install --no-index --find-links=/opt/xnav/wheels \
+    -r /opt/xnav/vision_core/requirements.txt -q
 
-# Update service files to use venv
-echo "Updating systemd service files..."
-sed -i "s|/usr/bin/python3|/opt/xnav/venv/bin/python3|g" \
-  /etc/systemd/system/xnav-vision.service \
-  /etc/systemd/system/xnav-dashboard.service
+  # Update service files to use venv Python
+  echo "Updating systemd service files..."
+  sed -i "s|/usr/bin/python3|/opt/xnav/venv/bin/python3|g" \
+    /etc/systemd/system/xnav-vision.service \
+    /etc/systemd/system/xnav-dashboard.service
 
-# Reload systemd
-echo "Reloading systemd..."
-systemctl daemon-reload
+  # Reload systemd
+  echo "Reloading systemd..."
+  systemctl daemon-reload
+fi
 
 # Enable services
 echo "Enabling XNav services..."
-systemctl enable xnav-vision.service
-systemctl enable xnav-dashboard.service
+systemctl enable xnav-vision.service 2>/dev/null || true
+systemctl enable xnav-dashboard.service 2>/dev/null || true
 
-# Stop services if already running (from initial boot)
-systemctl stop xnav-vision.service 2>/dev/null || true
-systemctl stop xnav-dashboard.service 2>/dev/null || true
-
-# Start services
+# Restart services (or start if not running yet)
 echo "Starting XNav services..."
-systemctl start xnav-vision.service
+systemctl restart xnav-vision.service || systemctl start xnav-vision.service || true
 sleep 2
-systemctl start xnav-dashboard.service
+systemctl restart xnav-dashboard.service || systemctl start xnav-dashboard.service || true
 
 # Check service status
 echo ""

@@ -84,11 +84,29 @@ check "File first_boot.sh exists"
 [ -x "$ROOT/etc/xnav/first_boot.sh" ]
 check "File first_boot.sh is executable"
 
-grep -q "python3 -m venv" "$ROOT/etc/xnav/first_boot.sh"
-check "First-boot script creates venv"
+# Venv may be pre-installed during build (QEMU chroot) or installed on first boot
+if [ -f "$ROOT/opt/xnav/venv/bin/python3" ]; then
+  echo "  ✓ Python venv pre-installed in image (immediate boot support)"
+  # When venv is pre-installed, service files should already point to it
+  grep -q "/opt/xnav/venv/bin/python3" "$ROOT/etc/systemd/system/xnav-vision.service"
+  check "Vision service uses pre-installed venv Python"
+else
+  echo "  ✓ Python venv will be installed from bundled wheels on first boot"
+  grep -q "python3 -m venv\|pip install --no-index" "$ROOT/etc/xnav/first_boot.sh"
+  check "First-boot script installs packages from bundled wheels"
+fi
 
-grep -q "systemctl start xnav-dashboard.service" "$ROOT/etc/xnav/first_boot.sh"
+grep -q "systemctl start xnav-dashboard.service\|systemctl restart xnav-dashboard.service" "$ROOT/etc/xnav/first_boot.sh"
 check "First-boot script starts dashboard"
+
+# Check pre-downloaded wheels for offline installation
+log "Checking offline package wheelhouse..."
+[ -d "$ROOT/opt/xnav/wheels" ]
+check "Wheels directory /opt/xnav/wheels exists"
+
+WHEEL_COUNT=$(ls -1 "$ROOT/opt/xnav/wheels"/*.whl 2>/dev/null | wc -l)
+[ "$WHEEL_COUNT" -gt 0 ]
+check "Wheels directory contains wheel files ($WHEEL_COUNT wheels)"
 
 # Check systemd services
 log "Checking systemd services..."

@@ -32,10 +32,34 @@ log "Upgrading pip..."
 pip install --upgrade pip -q
 
 log "Downloading wheels..."
-pip download \
-  -d "$OUTPUT_DIR" \
-  --prefer-binary \
-  -r "$REPO_ROOT/vision_core/requirements.txt"
+
+# Detect host architecture and request correct platform wheels
+HOST_ARCH=$(uname -m)
+if [ "$HOST_ARCH" = "aarch64" ] || [ "$HOST_ARCH" = "arm64" ]; then
+  # Native ARM64 build machine - pip downloads correct architecture automatically
+  pip download \
+    -d "$OUTPUT_DIR" \
+    --prefer-binary \
+    -r "$REPO_ROOT/vision_core/requirements.txt"
+else
+  # Cross-platform build (e.g., x86_64 host) - explicitly request ARM64 wheels
+  log "Cross-platform build detected ($HOST_ARCH -> aarch64), requesting ARM64 wheels..."
+  pip download \
+    -d "$OUTPUT_DIR" \
+    --prefer-binary \
+    --platform manylinux_2_17_aarch64 \
+    --platform linux_aarch64 \
+    --python-version 311 \
+    --only-binary :all: \
+    -r "$REPO_ROOT/vision_core/requirements.txt" || {
+      log "WARN: Could not download all ARM64 binary wheels, retrying without platform restriction..."
+      rm -f "$OUTPUT_DIR"/*.whl 2>/dev/null || true
+      pip download \
+        -d "$OUTPUT_DIR" \
+        --prefer-binary \
+        -r "$REPO_ROOT/vision_core/requirements.txt"
+    }
+fi
 
 # Clean up temporary venv
 deactivate
