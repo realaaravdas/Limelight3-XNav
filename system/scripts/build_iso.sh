@@ -82,8 +82,8 @@ ROOT_OFFSET=$(parted "$OUTPUT_IMG" -s unit B print | awk '/^ 2/{print $2}' | tr 
 log "Boot partition offset: $BOOT_OFFSET"
 log "Root partition offset: $ROOT_OFFSET"
 
-# Increase image size by 3GB for XNav (extra space for venv)
-truncate -s +3G "$OUTPUT_IMG"
+# Increase image size by 1GB for XNav (space for wheels and code files)
+truncate -s +1G "$OUTPUT_IMG"
 parted "$OUTPUT_IMG" -s resizepart 2 100%
 
 # Mount partitions
@@ -256,12 +256,41 @@ NETEOF
 # Clean up temporary venv
 rm -rf "$TEMP_VENV"
 
-# ── Cleanup ───────────────────────────────────────────────────────────────────
-log "Unmounting..."
+# ── Shrink filesystem & cleanup ───────────────────────────────────────────────
+log "Unmounting filesystems..."
 sync
 umount "$WORK_DIR/mnt/boot"
 umount "$WORK_DIR/mnt/root"
+
+# Shrink the root filesystem to its minimum size.
+# This eliminates the large block of empty space added by truncate,
+# which would otherwise slow eMMC flashing to a crawl (the 91% stall).
+log "Shrinking root filesystem to minimum size..."
+e2fsck -fy "${LOOP}p2"; EC=$?; [ $EC -le 2 ] || { log "ERROR: e2fsck returned $EC (filesystem has errors)"; losetup -d "$LOOP"; exit 1; }
+resize2fs -M "${LOOP}p2"
+
+# Read the resulting filesystem size
+TUNE2FS_OUT=$(tune2fs -l "${LOOP}p2" 2>/dev/null)
+FS_BLOCKS=$(echo "$TUNE2FS_OUT" | grep "^Block count:" | awk '{print $NF}')
+FS_BLOCK_SZ=$(echo "$TUNE2FS_OUT" | grep "^Block size:" | awk '{print $NF}')
+if [ -z "$FS_BLOCKS" ] || [ -z "$FS_BLOCK_SZ" ]; then
+  log "ERROR: Could not read filesystem size from tune2fs"
+  losetup -d "$LOOP"
+  exit 1
+fi
+FS_BYTES=$(( FS_BLOCKS * FS_BLOCK_SZ ))
+log "Root filesystem: $((FS_BYTES / 1024 / 1024)) MiB"
+
 losetup -d "$LOOP"
+
+# Shrink the partition to match the filesystem (2 MiB alignment buffer)
+NEW_PART_END=$(( ROOT_OFFSET + FS_BYTES + 2 * 1024 * 1024 ))
+parted "$OUTPUT_IMG" -s resizepart 2 ${NEW_PART_END}B
+
+# Truncate the image file to remove the now-unused trailing space (1 MiB tail)
+NEW_IMG_SIZE=$(( NEW_PART_END + 1 * 1024 * 1024 ))
+truncate -s "$NEW_IMG_SIZE" "$OUTPUT_IMG"
+log "Image size after shrink: $((NEW_IMG_SIZE / 1024 / 1024)) MiB"
 
 # Compress
 log "Compressing image..."

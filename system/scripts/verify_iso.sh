@@ -11,7 +11,7 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-IMG_FILE="${1:-xnav-1.0.0.img.xz}"
+IMG_FILE="${1:-xnav-1.1.0.img.xz}"
 
 if [ ! -f "$IMG_FILE" ]; then
   echo "ERROR: Image file not found: $IMG_FILE"
@@ -169,8 +169,8 @@ check "OpenCV in requirements"
 grep -q "pupil-apriltags" "$ROOT/opt/xnav/vision_core/requirements.txt"
 check "pupil-apriltags in requirements"
 
-grep -q "robotpy-ntcore" "$ROOT/opt/xnav/vision_core/requirements.txt"
-check "robotpy-ntcore in requirements"
+grep -q "pyntcore" "$ROOT/opt/xnav/vision_core/requirements.txt"
+check "pyntcore in requirements"
 
 # Check web dashboard files
 log "Checking web dashboard files..."
