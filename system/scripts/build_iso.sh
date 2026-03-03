@@ -123,13 +123,65 @@ cat > "$ROOT/etc/xnav/first_boot.sh" << 'FIRSTBOOT'
 #!/bin/bash
 # Runs once on first boot to complete installation
 set -e
+
+# Log file
+FIRSTBOOT_LOG="/var/log/xnav-firstboot.log"
+exec > >(tee -a "$FIRSTBOOT_LOG") 2>&1
+
+echo "========================================="
+echo "XNav First-Boot Setup - $(date)"
+echo "========================================="
+
 cd /opt/xnav
+
+# Create virtual environment
+echo "Creating Python virtual environment..."
 python3 -m venv venv
 source venv/bin/activate
+
+# Install Python packages
+echo "Installing Python packages (this may take several minutes)..."
 pip install --upgrade pip -q
-pip install -r /opt/xnav/vision_core/requirements.txt
-deactivate
+pip install -r /opt/xnav/vision_core/requirements.txt -q
+
+# Update service files to use venv
+echo "Updating systemd service files..."
+sed -i "s|/usr/bin/python3|/opt/xnav/venv/bin/python3|g" \
+  /etc/systemd/system/xnav-vision.service \
+  /etc/systemd/system/xnav-dashboard.service
+
+# Reload systemd
+echo "Reloading systemd..."
+systemctl daemon-reload
+
+# Enable services
+echo "Enabling XNav services..."
+systemctl enable xnav-vision.service
+systemctl enable xnav-dashboard.service
+
+# Stop services if already running (from initial boot)
+systemctl stop xnav-vision.service 2>/dev/null || true
+systemctl stop xnav-dashboard.service 2>/dev/null || true
+
+# Start services
+echo "Starting XNav services..."
+systemctl start xnav-vision.service
+sleep 2
+systemctl start xnav-dashboard.service
+
+# Check service status
+echo ""
+echo "Service Status:"
+echo "==============="
+systemctl status xnav-vision.service --no-pager || true
+echo ""
+systemctl status xnav-dashboard.service --no-pager || true
+echo ""
+
 # Mark done
+echo "First-boot setup complete!"
+echo "Dashboard: http://xnav.local:5800"
+echo "========================================="
 rm -f /etc/xnav/first_boot.sh
 FIRSTBOOT
 chmod +x "$ROOT/etc/xnav/first_boot.sh"
@@ -137,8 +189,28 @@ chmod +x "$ROOT/etc/xnav/first_boot.sh"
 # rc.local: run first boot if needed
 RCLOCAL="$ROOT/etc/rc.local"
 if [ -f "$RCLOCAL" ]; then
-  sed -i '/^exit 0/i [ -f /etc/xnav/first_boot.sh ] \&\& bash /etc/xnav/first_boot.sh' "$RCLOCAL"
+  # Remove old first_boot call if exists
+  sed -i '/first_boot.sh/d' "$RCLOCAL"
+  # Add new first_boot call before exit 0
+  sed -i '/^exit 0/i [ -f /etc/xnav/first_boot.sh ] \&\& bash /etc/xnav/first_boot.sh &' "$RCLOCAL"
+else
+  # Create rc.local if it doesn't exist
+  cat > "$RCLOCAL" << 'RCEOF'
+#!/bin/bash
+# rc.local - local startup script
+
+# Run XNav first-boot setup if needed
+[ -f /etc/xnav/first_boot.sh ] && bash /etc/xnav/first_boot.sh &
+
+exit 0
+RCEOF
+  chmod +x "$RCLOCAL"
 fi
+
+# Enable rc-local service
+mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants"
+ln -sf /lib/systemd/system/rc-local.service \
+  "$ROOT/etc/systemd/system/multi-user.target.wants/rc-local.service"
 
 # Set hostname
 echo "xnav" > "$ROOT/etc/hostname"
@@ -152,6 +224,14 @@ start_x=1
 gpu_mem=128
 disable_camera_led=1
 BOOTEOF
+
+# Network configuration - use DHCP for eth0
+NETWORK_CFG="$ROOT/etc/network/interfaces.d/eth0"
+cat > "$NETWORK_CFG" << 'NETEOF'
+# XNav Network Configuration - eth0 gets IP via DHCP from robot
+auto eth0
+iface eth0 inet dhcp
+NETEOF
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 log "Unmounting..."

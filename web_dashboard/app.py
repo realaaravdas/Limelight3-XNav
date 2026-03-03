@@ -20,6 +20,14 @@ from flask_socketio import SocketIO, emit
 
 import numpy as np
 
+# ─── Logging setup ─────────────────────────────────────────────────────────────
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 # ─── App setup ───────────────────────────────────────────────────────────────
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
