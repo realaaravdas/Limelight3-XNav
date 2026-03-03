@@ -1,10 +1,12 @@
 [Unit]
 Description=XNav Vision System
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
+# Python interpreter will be updated by first-boot script to use venv
 ExecStart=/usr/bin/python3 /opt/xnav/vision_core/src/main.py
 WorkingDirectory=/opt/xnav
 Restart=always
@@ -12,11 +14,15 @@ RestartSec=3
 StandardOutput=journal
 StandardError=journal
 Environment="XNAV_CONFIG=/etc/xnav/config.json"
+# Don't start dashboard subprocess (handled by xnav-dashboard.service)
+Environment="XNAV_DISABLE_DASHBOARD=1"
 # CPU affinity: use cores 0-3 for vision
 CPUAffinity=0 1 2 3
 # Realtime priority
 Nice=-10
 IOSchedulingClass=realtime
+# Delay start to allow first-boot setup to complete
+ExecStartPre=/bin/sleep 10
 
 [Install]
 WantedBy=multi-user.target

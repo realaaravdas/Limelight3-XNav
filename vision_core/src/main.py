@@ -272,18 +272,20 @@ def main():
     _pipeline.start()
 
     # Start web dashboard in background thread if enabled
+    # Skip if XNAV_DISABLE_DASHBOARD is set (for systemd service mode)
     _web_proc = None
-    try:
-        web_mod_path = os.path.join(os.path.dirname(__file__), "../../web_dashboard/app.py")
-        if os.path.exists(web_mod_path):
-            import subprocess
-            _web_proc = subprocess.Popen(
-                [sys.executable, web_mod_path],
-                env={**os.environ, "XNAV_CONFIG": config_path}
-            )
-            logger.info("Web dashboard started (PID %d)", _web_proc.pid)
-    except Exception as e:
-        logger.warning("Could not start web dashboard: %s", e)
+    if not os.environ.get("XNAV_DISABLE_DASHBOARD"):
+        try:
+            web_mod_path = os.path.join(os.path.dirname(__file__), "../../web_dashboard/app.py")
+            if os.path.exists(web_mod_path):
+                import subprocess
+                _web_proc = subprocess.Popen(
+                    [sys.executable, web_mod_path],
+                    env={**os.environ, "XNAV_CONFIG": config_path}
+                )
+                logger.info("Web dashboard started (PID %d)", _web_proc.pid)
+        except Exception as e:
+            logger.warning("Could not start web dashboard: %s", e)
 
     def _signal_handler_with_web(sig, frame):
         logger.info("Shutting down...")

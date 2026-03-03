@@ -30,7 +30,19 @@
 1. Flash `xnav-1.0.0.img.xz` to your CM4 / SD card using [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
 2. Insert into Limelight 3 / Raspberry Pi CM4 carrier board
 3. Connect to robot network, power on
-4. Open **http://xnav.local:5800** or **http://10.TE.AM.11:5800**
+4. **Wait 5-10 minutes** for first-boot setup to complete (services will start automatically)
+5. Open **http://xnav.local:5800** or **http://10.TE.AM.11:5800**
+
+**Note:** On first boot, the device will run a setup script that:
+- Creates a Python virtual environment
+- Installs all dependencies
+- Configures and starts services
+
+You can monitor progress via SSH:
+```bash
+ssh root@xnav.local
+cat /var/log/xnav-firstboot.log
+```
 
 ### Manual Install (on existing Raspberry Pi OS)
 
@@ -38,6 +50,10 @@
 git clone https://github.com/realaaravdas/Limelight3-XNav /opt/xnav-src
 sudo bash /opt/xnav-src/system/scripts/setup.sh
 ```
+
+### Building Your Own Image
+
+See [Build Instructions](docs/build_instructions.md) for detailed steps to build a flashable ISO image.
 
 ---
 
@@ -157,6 +173,23 @@ Full docs: [roborio_library/docs/README.md](roborio_library/docs/README.md)
 
 All settings stored in `/etc/xnav/config.json` on the device.
 Edit via web dashboard or directly via SSH.
+
+---
+
+## Troubleshooting & Support
+
+| Problem | Solution |
+|---------|----------|
+| Dashboard not accessible | Check IP address, ensure port 5800 is not blocked |
+| No camera feed | Verify camera is connected, check `/dev/video0` exists |
+| Tags not detecting | Check lighting, calibrate camera, verify tag family/size |
+| Robot pose wrong | Upload correct .fmap, recalibrate camera |
+| NT not connecting | Verify team number, check roboRIO is on same network |
+| Low FPS | Enable match mode, reduce resolution, check CPU temperature |
+
+For detailed troubleshooting guides, see:
+- [Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
+- [Build Instructions](docs/build_instructions.md) - ISO building and flashing
 
 ---
 
