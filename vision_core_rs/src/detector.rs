@@ -72,8 +72,10 @@ impl Default for TagDetection {
 
 /// Convert a rotation vector to (roll, pitch, yaw) in degrees using Rodrigues.
 fn rvec_to_euler(rvec: &[f64]) -> (f64, f64, f64) {
-    let rvec_mat =
-        Mat::from_slice(rvec).unwrap_or_else(|_| Mat::zeros(3, 1, core::CV_64F).unwrap().to_mat().unwrap());
+    let rvec_mat = match Mat::from_slice(rvec) {
+        Ok(m) => m,
+        Err(_) => return (0.0, 0.0, 0.0),
+    };
     let mut r_mat = Mat::default();
     let mut _jacobian = Mat::default();
     if calib3d::rodrigues(&rvec_mat, &mut r_mat, &mut _jacobian).is_err() {
