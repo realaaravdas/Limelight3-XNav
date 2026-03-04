@@ -1,0 +1,192 @@
+=== Crate version: 0.93.7
+=== Environment configuration:
+===   OPENCV_PACKAGE_NAME = None
+===   OPENCV_PKGCONFIG_NAME = None
+===   OPENCV_CMAKE_NAME = None
+===   OPENCV_CMAKE_BIN = None
+===   OPENCV_VCPKG_NAME = None
+===   OPENCV_LINK_LIBS = None
+===   OPENCV_LINK_PATHS = None
+===   OPENCV_INCLUDE_PATHS = None
+===   OPENCV_DISABLE_PROBES = None
+===   OPENCV_MSVC_CRT = None
+===   CMAKE_PREFIX_PATH = None
+===   OpenCV_DIR = None
+===   PKG_CONFIG_PATH = None
+===   VCPKG_ROOT = None
+===   VCPKGRS_DYNAMIC = None
+===   VCPKGRS_TRIPLET = None
+===   OCVRS_DOCS_GENERATE_DIR = None
+===   DOCS_RS = None
+===   PATH = Some("/home/runner/work/_temp/ghcca-node/node/bin:/snap/bin:/home/runner/.local/bin:/opt/pipx_bin:/home/runner/.cargo/bin:/home/runner/.config/composer/vendor/bin:/usr/local/.ghcup/bin:/home/runner/.dotnet/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin")
+=== Enabled features:
+===   CALIB3D
+===   FEATURES2D
+===   FLANN
+===   IMGCODECS
+===   IMGPROC
+===   OBJDETECT
+===   VIDEOIO
+=== Detected probe priority boost based on environment vars: pkg_config: false, cmake: false, vcpkg: false
+=== Probing the OpenCV library in the following order: environment, pkg_config, cmake, vcpkg_cmake, vcpkg
+=== Can't probe using: environment, continuing with other methods because: Some environment variables are missing
+=== Probing OpenCV library using pkg_config
+=== Successfully probed using: pkg_config
+=== OpenCV library configuration: Library {
+    include_paths: [
+        "/usr/include/opencv4",
+    ],
+    version: Version {
+        major: 4,
+        minor: 6,
+        patch: 0,
+    },
+    cargo_metadata: [
+        "cargo:rustc-link-search=/usr/lib/x86_64-linux-gnu",
+        "cargo:rustc-link-lib=opencv_stitching",
+        "cargo:rustc-link-lib=opencv_alphamat",
+        "cargo:rustc-link-lib=opencv_aruco",
+        "cargo:rustc-link-lib=opencv_barcode",
+        "cargo:rustc-link-lib=opencv_bgsegm",
+        "cargo:rustc-link-lib=opencv_bioinspired",
+        "cargo:rustc-link-lib=opencv_ccalib",
+        "cargo:rustc-link-lib=opencv_cvv",
+        "cargo:rustc-link-lib=opencv_dnn_objdetect",
+        "cargo:rustc-link-lib=opencv_dnn_superres",
+        "cargo:rustc-link-lib=opencv_dpm",
+        "cargo:rustc-link-lib=opencv_face",
+        "cargo:rustc-link-lib=opencv_freetype",
+        "cargo:rustc-link-lib=opencv_fuzzy",
+        "cargo:rustc-link-lib=opencv_hdf",
+        "cargo:rustc-link-lib=opencv_hfs",
+        "cargo:rustc-link-lib=opencv_img_hash",
+        "cargo:rustc-link-lib=opencv_intensity_transform",
+        "cargo:rustc-link-lib=opencv_line_descriptor",
+        "cargo:rustc-link-lib=opencv_mcc",
+        "cargo:rustc-link-lib=opencv_quality",
+        "cargo:rustc-link-lib=opencv_rapid",
+        "cargo:rustc-link-lib=opencv_reg",
+        "cargo:rustc-link-lib=opencv_rgbd",
+        "cargo:rustc-link-lib=opencv_saliency",
+        "cargo:rustc-link-lib=opencv_shape",
+        "cargo:rustc-link-lib=opencv_stereo",
+        "cargo:rustc-link-lib=opencv_structured_light",
+        "cargo:rustc-link-lib=opencv_phase_unwrapping",
+        "cargo:rustc-link-lib=opencv_superres",
+        "cargo:rustc-link-lib=opencv_optflow",
+        "cargo:rustc-link-lib=opencv_surface_matching",
+        "cargo:rustc-link-lib=opencv_tracking",
+        "cargo:rustc-link-lib=opencv_highgui",
+        "cargo:rustc-link-lib=opencv_datasets",
+        "cargo:rustc-link-lib=opencv_text",
+        "cargo:rustc-link-lib=opencv_plot",
+        "cargo:rustc-link-lib=opencv_ml",
+        "cargo:rustc-link-lib=opencv_videostab",
+        "cargo:rustc-link-lib=opencv_videoio",
+        "cargo:rustc-link-lib=opencv_viz",
+        "cargo:rustc-link-lib=opencv_wechat_qrcode",
+        "cargo:rustc-link-lib=opencv_ximgproc",
+        "cargo:rustc-link-lib=opencv_video",
+        "cargo:rustc-link-lib=opencv_xobjdetect",
+        "cargo:rustc-link-lib=opencv_objdetect",
+        "cargo:rustc-link-lib=opencv_calib3d",
+        "cargo:rustc-link-lib=opencv_imgcodecs",
+        "cargo:rustc-link-lib=opencv_features2d",
+        "cargo:rustc-link-lib=opencv_dnn",
+        "cargo:rustc-link-lib=opencv_flann",
+        "cargo:rustc-link-lib=opencv_xphoto",
+        "cargo:rustc-link-lib=opencv_photo",
+        "cargo:rustc-link-lib=opencv_imgproc",
+        "cargo:rustc-link-lib=opencv_core",
+    ],
+}
+=== Detected OpenCV module header dir at: /usr/include/opencv4/opencv2
+=== Found OpenCV version: 4.6.0 in headers located at: /usr/include/opencv4
+=== Generating code in: /home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-5f53d0ee5fdcf70c/out
+=== Placing generated bindings into: /home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-5f53d0ee5fdcf70c/out/opencv
+=== Using OpenCV headers from: /usr/include/opencv4
+=== Clang: Ubuntu clang version 18.1.3 (1ubuntu1)
+=== Clang command line args: [
+    "-isystem/usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14",
+    "-isystem/usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/x86_64-linux-gnu/c++/14",
+    "-isystem/usr/bin/../lib/gcc/x86_64-linux-gnu/14/../../../../include/c++/14/backward",
+    "-isystem/usr/lib/llvm-18/lib/clang/18/include",
+    "-isystem/usr/local/include",
+    "-isystem/usr/include/x86_64-linux-gnu",
+    "-isystem/usr/include",
+    "-I/usr/include/opencv4",
+    "-F/usr/include/opencv4",
+    "-I/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/opencv-0.93.7/src_cpp",
+    "-F/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/opencv-0.93.7/src_cpp",
+    "-DOCVRS_PARSING_HEADERS",
+    "-includeocvrs_common.hpp",
+    "-std=c++14",
+]
+=== Using environment job server with the the amount of available jobs: 4
+=== Generating 8 modules
+=== Running: "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-c2bb592a28747d38/build-script-build" "/usr/include/opencv4" "/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/opencv-0.93.7/src_cpp" "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-5f53d0ee5fdcf70c/out" "core" ""
+=== Running: "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-c2bb592a28747d38/build-script-build" "/usr/include/opencv4" "/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/opencv-0.93.7/src_cpp" "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-5f53d0ee5fdcf70c/out" "flann" ""
+=== Running: "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-c2bb592a28747d38/build-script-build" "/usr/include/opencv4" "/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/opencv-0.93.7/src_cpp" "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-5f53d0ee5fdcf70c/out" "features2d" ""
+=== Running: "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-c2bb592a28747d38/build-script-build" "/usr/include/opencv4" "/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/opencv-0.93.7/src_cpp" "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-5f53d0ee5fdcf70c/out" "calib3d" ""
+=== Generated: flann in 4.046287845s
+=== Running: "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-c2bb592a28747d38/build-script-build" "/usr/include/opencv4" "/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/opencv-0.93.7/src_cpp" "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-5f53d0ee5fdcf70c/out" "imgcodecs" ""
+=== Generated: features2d in 4.483567766s
+=== Running: "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-c2bb592a28747d38/build-script-build" "/usr/include/opencv4" "/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/opencv-0.93.7/src_cpp" "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-5f53d0ee5fdcf70c/out" "imgproc" ""
+=== Generated: calib3d in 5.069975922s
+=== Running: "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-c2bb592a28747d38/build-script-build" "/usr/include/opencv4" "/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/opencv-0.93.7/src_cpp" "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-5f53d0ee5fdcf70c/out" "objdetect" ""
+=== Generated: imgcodecs in 1.0504073s
+=== Running: "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-c2bb592a28747d38/build-script-build" "/usr/include/opencv4" "/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/opencv-0.93.7/src_cpp" "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-5f53d0ee5fdcf70c/out" "videoio" ""
+=== Generated: videoio in 1.234352028s
+=== Generated: objdetect in 1.73343094s
+=== Generated: imgproc in 2.488966719s
+=== Generated: core in 7.457777949s
+=== Total binding generation time: 7.458162686s
+=== Total binding collection time: 22.54471ms
+=== Compiler information: Tool {
+    path: "c++",
+    cc_wrapper_path: None,
+    cc_wrapper_args: [],
+    args: [
+        "-O0",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fPIC",
+        "-g",
+        "-gdwarf-4",
+        "-fno-omit-frame-pointer",
+        "-m64",
+        "-std=c++14",
+        "-I",
+        "/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/opencv-0.93.7/src_cpp",
+        "-I",
+        "/home/runner/work/Limelight3-XNav/Limelight3-XNav/vision_core_rs/target/debug/build/opencv-5f53d0ee5fdcf70c/out",
+        "-I",
+        ".",
+        "-I",
+        "/usr/include/opencv4",
+        "-Wall",
+        "-Wextra",
+        "-Wno-deprecated-declarations",
+        "-Wno-deprecated-copy",
+        "-Wno-unused-parameter",
+        "-Wno-sign-compare",
+        "-Wno-comment",
+        "-Wunused-but-set-variable",
+        "-Wno-unused-variable",
+        "-Wno-ignored-qualifiers",
+        "-Wno-return-type-c-linkage",
+        "-Wno-overloaded-virtual",
+        "-DOCVRS_FFI_EXPORT_SUFFIX=_0_93_7",
+    ],
+    env: [
+        (
+            "LC_ALL",
+            "C",
+        ),
+    ],
+    family: Gnu,
+    cuda: false,
+    removed_args: [],
+    has_internal_target_arg: false,
+}
+=== Total cpp build time: 18.126644419s

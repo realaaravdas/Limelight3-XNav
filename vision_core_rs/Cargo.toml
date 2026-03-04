@@ -1,0 +1,56 @@
+[package]
+name = "xnav"
+version = "1.1.0"
+edition = "2021"
+description = "XNav Vision System - AprilTag detection and pose estimation for FRC"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["ws", "multipart"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# OpenCV bindings
+opencv = { version = "0.93", default-features = false, features = [
+    "videoio",
+    "calib3d",
+    "imgproc",
+    "imgcodecs",
+    "objdetect",
+] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+# Embed static web assets
+rust-embed = { version = "8", features = ["interpolate-folder-path"] }
+mime_guess = "2"
+
+# Sync primitives
+parking_lot = "0.12"
+
+# NT4 protocol (WebSocket + MessagePack)
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+rmp-serde = "1"
+rmpv = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []
+rpi = []
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
