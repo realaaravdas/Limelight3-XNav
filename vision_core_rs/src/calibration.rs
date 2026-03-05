@@ -6,7 +6,7 @@ use crate::config::ConfigManager;
 use opencv::core::{Mat, Point2f, Point3f, Size, TermCriteria, Vector};
 use opencv::prelude::*;
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -32,7 +32,7 @@ struct CalibrationState {
     result: Option<CalibrationResult>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CalibrationResult {
     pub camera_matrix: Vec<Vec<f64>>,
     pub dist_coeffs: Vec<Vec<f64>>,

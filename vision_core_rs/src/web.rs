@@ -23,7 +23,6 @@ use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, Mutex};
-use tokio_stream::StreamExt;
 use tracing::{error, info, warn};
 
 use crate::calibration::CalibrationManager;
@@ -597,7 +596,7 @@ fn encode_mat_jpeg(mat: &opencv::core::Mat, quality: i32) -> Option<Vec<u8>> {
     let mut buf = Vector::<u8>::new();
     let params = Vector::from_slice(&[imgcodecs::IMWRITE_JPEG_QUALITY, quality]);
     imgcodecs::imencode(".jpg", mat, &mut buf, &params).ok()?;
-    Some(buf.to_vec())
+    Some(buf.iter().collect())
 }
 
 // ---------------------------------------------------------------------------

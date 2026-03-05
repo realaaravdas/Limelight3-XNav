@@ -1,7 +1,14 @@
 #!/bin/bash
 # XNav Setup Script
 # Run as root on a Raspberry Pi CM (Raspberry Pi OS Lite 64-bit)
+# Installs the XNav Rust binary and systemd service.
+#
 # Usage: sudo bash setup.sh
+#
+# The script will:
+#   1. Install OpenCV system libraries and camera dependencies
+#   2. Build the Rust binary natively (requires ~20-40 min on first run)
+#   3. Deploy the binary, config, and systemd service
 
 set -e
 
@@ -26,61 +33,36 @@ apt-get update -qq
 
 log "Installing system packages..."
 apt-get install -y -qq \
-  python3 python3-pip python3-venv python3-dev \
   libcamera-apps libcamera-dev \
-  libatlas-base-dev \
-  libhdf5-dev libhdf5-serial-dev \
-  libgtk-3-0 \
-  libavcodec-dev libavformat-dev libswscale-dev \
-  libjpeg-dev libpng-dev libtiff-dev \
+  libopencv-dev libopencv-core-dev libopencv-videoio-dev \
+  libopencv-objdetect-dev libopencv-calib3d-dev \
+  libopencv-imgproc-dev libopencv-imgcodecs-dev \
   v4l-utils \
-  git curl \
-  hostapd dhcpcd5 \
   pigpio \
+  curl build-essential pkg-config \
+  libclang-dev clang \
   2>&1 | tail -5
 
-# ── Enable camera & GPIO ─────────────────────────────────────────────────────
+# ── Enable camera & GPU ──────────────────────────────────────────────────────
 log "Enabling camera interface..."
-if ! grep -q "^start_x=1" /boot/config.txt 2>/dev/null; then
-  echo "start_x=1" >> /boot/config.txt
-fi
-if ! grep -q "^gpu_mem=128" /boot/config.txt 2>/dev/null; then
-  echo "gpu_mem=128" >> /boot/config.txt
-fi
-# Disable camera LED (Limelight doesn't need it)
-if ! grep -q "disable_camera_led=1" /boot/config.txt 2>/dev/null; then
-  echo "disable_camera_led=1" >> /boot/config.txt
-fi
-
-# ── Performance tweaks ───────────────────────────────────────────────────────
-log "Applying performance configuration..."
-
-# CPU Governor
-if [ -f /etc/rc.local ]; then
-  grep -q "performance" /etc/rc.local || \
-    sed -i '/^exit 0/i for governor in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > $governor; done' /etc/rc.local
+BOOT_CFG=""
+for f in /boot/config.txt /boot/firmware/config.txt; do
+  [ -f "$f" ] && BOOT_CFG="$f" && break
+done
+if [ -n "$BOOT_CFG" ]; then
+  grep -q "^start_x=1" "$BOOT_CFG" || echo "start_x=1" >> "$BOOT_CFG"
+  grep -q "^gpu_mem=128" "$BOOT_CFG" || echo "gpu_mem=128" >> "$BOOT_CFG"
+  grep -q "disable_camera_led=1" "$BOOT_CFG" || echo "disable_camera_led=1" >> "$BOOT_CFG"
 fi
 
-# GPU memory split for vision
-cat > /boot/config.txt.xnav_perf << 'EOF'
-# XNav performance settings
-arm_freq=1800
-gpu_freq=750
-over_voltage=6
-EOF
-
-# ── Install XNav ─────────────────────────────────────────────────────────────
-log "Installing XNav to $XNAV_DIR..."
-mkdir -p "$XNAV_DIR"
+# ── Install XNav directories ─────────────────────────────────────────────────
+log "Creating XNav directories..."
+mkdir -p "$XNAV_DIR/bin"
 mkdir -p "$XNAV_CFG"
 mkdir -p /var/log
 
-# Copy application files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
-cp -r "$REPO_ROOT/vision_core" "$XNAV_DIR/"
-cp -r "$REPO_ROOT/web_dashboard" "$XNAV_DIR/"
 
 # Install default config
 if [ ! -f "$XNAV_CFG/config.json" ]; then
@@ -88,43 +70,61 @@ if [ ! -f "$XNAV_CFG/config.json" ]; then
   log "Installed default config"
 fi
 
-# ── Python virtual environment ───────────────────────────────────────────────
-log "Creating Python virtual environment..."
-python3 -m venv "$XNAV_DIR/venv"
-source "$XNAV_DIR/venv/bin/activate"
+# ── Build Rust binary ────────────────────────────────────────────────────────
 
-log "Installing Python packages (this may take a while)..."
-pip install --upgrade pip -q
-
-# Try to use pre-downloaded wheels if available (offline mode)
-if [ -d "$XNAV_DIR/wheels" ] && [ "$(ls -A $XNAV_DIR/wheels/*.whl 2>/dev/null)" ]; then
-    log "Installing from pre-downloaded wheels (offline mode)..."
-    pip install --no-index --find-links="$XNAV_DIR/wheels" -r "$XNAV_DIR/vision_core/requirements.txt" -q
+# Check for a pre-built binary first
+PREBUILT_BINARY="$REPO_ROOT/vision_core_rs/dist/xnav-aarch64"
+if [ -f "$PREBUILT_BINARY" ] && [ -x "$PREBUILT_BINARY" ]; then
+  log "Installing pre-built binary from dist/..."
+  cp "$PREBUILT_BINARY" "$XNAV_DIR/bin/xnav"
+  chmod +x "$XNAV_DIR/bin/xnav"
 else
-    # Fallback to online installation
-    log "Installing from PyPI (online mode)..."
-    pip install -r "$XNAV_DIR/vision_core/requirements.txt" -q
+  log "No pre-built binary found — building from source..."
+
+  # Install Rust toolchain (if not already present)
+  if ! command -v cargo &>/dev/null; then
+    log "Installing Rust toolchain (this may take a few minutes)..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain stable --no-modify-path
+    export PATH="${HOME}/.cargo/bin:$PATH"
+  fi
+  source "${HOME}/.cargo/env" 2>/dev/null || true
+  export PATH="${HOME}/.cargo/bin:$PATH"
+
+  log "Building XNav Rust binary (this takes ~20-40 minutes)..."
+  log "  Output will be logged to $LOG_FILE"
+  (cd "$REPO_ROOT/vision_core_rs" && cargo build --release 2>&1 | tee -a "$LOG_FILE")
+
+  cp "$REPO_ROOT/vision_core_rs/target/release/xnav" "$XNAV_DIR/bin/xnav"
+  chmod +x "$XNAV_DIR/bin/xnav"
+
+  log "XNav binary built successfully!"
+  log "  Size: $(du -sh "$XNAV_DIR/bin/xnav" | cut -f1)"
+
+  # Optional: remove Rust toolchain to save ~1 GB of disk space
+  echo ""
+  echo "  Remove Rust build toolchain (~1 GB)? (y/N)"
+  read -r ans
+  if [[ "$ans" =~ ^[Yy]$ ]]; then
+    log "Removing Rust toolchain to save disk space..."
+    "${HOME}/.cargo/bin/rustup" self uninstall -y 2>/dev/null || true
+    apt-get remove -y -qq libclang-dev clang build-essential 2>/dev/null || true
+    apt-get autoremove -y -qq 2>/dev/null || true
+    log "Rust toolchain removed."
+  fi
 fi
-deactivate
 
-# Update service scripts to use venv (only the installed copies)
-log "Installing systemd services..."
+# ── Install systemd service ───────────────────────────────────────────────────
+log "Installing systemd service..."
 cp "$REPO_ROOT/system/services/xnav-vision.service" /etc/systemd/system/
-cp "$REPO_ROOT/system/services/xnav-dashboard.service" /etc/systemd/system/
-
-# Update installed service files to use the venv interpreter
-sed -i "s|/usr/bin/python3|$XNAV_DIR/venv/bin/python3|g" \
-  /etc/systemd/system/xnav-vision.service \
-  /etc/systemd/system/xnav-dashboard.service
 
 systemctl daemon-reload
 systemctl enable xnav-vision.service
-systemctl enable xnav-dashboard.service
 
 # ── Hostname ─────────────────────────────────────────────────────────────────
 log "Setting hostname to 'xnav'..."
 hostnamectl set-hostname xnav
-echo "127.0.1.1    xnav" >> /etc/hosts
+grep -q "127.0.1.1.*xnav" /etc/hosts || echo "127.0.1.1    xnav" >> /etc/hosts
 
 # ── Permissions ─────────────────────────────────────────────────────────────
 chmod -R 755 "$XNAV_DIR"
@@ -132,8 +132,10 @@ chmod 644 "$XNAV_CFG/config.json"
 
 log "═══════════════════════════════════════════"
 log "  Installation complete!"
+log "  Binary: $XNAV_DIR/bin/xnav"
+log "  Config: $XNAV_CFG/config.json"
 log "  Dashboard: http://xnav.local:5800"
-log "  Reboot to start services."
+log "  Reboot to start service."
 log "═══════════════════════════════════════════"
 echo
 echo "  Reboot now? (y/N)"
@@ -141,3 +143,4 @@ read -r ans
 if [[ "$ans" =~ ^[Yy]$ ]]; then
   reboot
 fi
+

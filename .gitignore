@@ -44,3 +44,6 @@ dmypy.json
 
 # pytest
 .pytest_cache/
+
+# Rust build artifacts
+vision_core_rs/target/
