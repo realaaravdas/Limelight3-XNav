@@ -83,7 +83,7 @@ log "Boot partition offset: $BOOT_OFFSET"
 log "Root partition offset: $ROOT_OFFSET"
 
 # Increase image size for XNav binary + OpenCV runtime libraries (~300MB)
-truncate -s +512M "$OUTPUT_IMG"
+truncate -s +2G "$OUTPUT_IMG"
 parted "$OUTPUT_IMG" -s resizepart 2 100%
 
 # Mount partitions
