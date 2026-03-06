@@ -364,11 +364,12 @@ impl AprilTagDetector {
             return Err("empty matrix".into());
         }
         let flat: Vec<f64> = rows.into_iter().flatten().collect();
-        let row_mat = Mat::from_slice(&flat).map_err(|e| e.to_string())?;
+        let row_mat = Mat::from_slice(&flat)
+            .map_err(|e| format!("from_slice failed: {e}"))?;
         row_mat
             .reshape(1, nrows)
             .map(|br| br.clone_pointee())
-            .map_err(|e| e.to_string())
+            .map_err(|e| format!("reshape failed: {e}"))
     }
 
     /// Parse a JSON 1-D array into a single-row CV_64F Mat.
@@ -376,6 +377,6 @@ impl AprilTagDetector {
         let flat: Vec<f64> = serde_json::from_value(val.clone()).map_err(|e| e.to_string())?;
         Mat::from_slice(&flat)
             .map(|br| br.clone_pointee())
-            .map_err(|e: opencv::Error| e.to_string())
+            .map_err(|e| e.to_string())
     }
 }

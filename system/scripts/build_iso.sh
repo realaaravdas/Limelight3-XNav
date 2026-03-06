@@ -330,7 +330,7 @@ fi
 
 # Set hostname
 echo "xnav" > "$ROOT/etc/hostname"
-grep -q "127.0.1.1.*xnav" "$ROOT/etc/hosts" 2>/dev/null || \
+grep -q "^127\.0\.1\.1[[:space:]]*xnav$" "$ROOT/etc/hosts" 2>/dev/null || \
   echo "127.0.1.1    xnav" >> "$ROOT/etc/hosts"
 
 # Boot config

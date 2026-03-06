@@ -124,7 +124,7 @@ systemctl enable xnav-vision.service
 # ── Hostname ─────────────────────────────────────────────────────────────────
 log "Setting hostname to 'xnav'..."
 hostnamectl set-hostname xnav
-grep -q "127.0.1.1.*xnav" /etc/hosts || echo "127.0.1.1    xnav" >> /etc/hosts
+grep -q "^127\.0\.1\.1[[:space:]]*xnav$" /etc/hosts || echo "127.0.1.1    xnav" >> /etc/hosts
 
 # ── Permissions ─────────────────────────────────────────────────────────────
 chmod -R 755 "$XNAV_DIR"
