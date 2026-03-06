@@ -1,10 +1,15 @@
 #!/bin/bash
-# XNav ISO Builder
+# XNav ISO Builder (C++ edition)
 # Creates a flashable Raspberry Pi OS image with XNav pre-installed.
-# Requirements: pi-gen or a Linux system with loop device support.
+# The vision core is a single C++ binary — no Python, no pip, no wheels.
 #
 # Usage: sudo bash build_iso.sh
 # Output: xnav-<version>.img.xz
+#
+# Requirements on build machine:
+#   sudo apt-get install -y parted e2fsprogs xz-utils curl git util-linux \
+#       cmake g++ pkg-config qemu-user-static binfmt-support \
+#       libopencv-dev libapriltag-dev libgpiod-dev
 
 set -e
 
@@ -20,27 +25,14 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-log "XNav ISO Builder v${XNAV_VERSION}"
+log "XNav ISO Builder v${XNAV_VERSION} (C++ edition)"
 log "Repo: $REPO_ROOT"
 
-# ── Method 1: Using pi-gen ───────────────────────────────────────────────────
-# pi-gen is the official Raspberry Pi OS build tool.
-
-BUILD_USING_PIGEN=false
-
-if command -v pi-gen &>/dev/null || [ -d "/opt/pi-gen" ]; then
-  BUILD_USING_PIGEN=true
-fi
-
-# ── Method 2: Inject into existing image ─────────────────────────────────────
-# Download official RPi OS Lite, mount, and inject XNav.
-
+# ── Download base image ──────────────────────────────────────────────────────
 log "Using image injection method..."
-
 mkdir -p "$WORK_DIR"
 cd "$WORK_DIR"
 
-# Base image URL (64-bit RPi OS Lite)
 BASE_URL="https://downloads.raspberrypi.org/raspios_lite_arm64_latest"
 BASE_IMG="raspios_lite_arm64_latest.img.xz"
 
@@ -61,7 +53,6 @@ if [ ! -f "$BASE_IMG" ]; then
   fi
 fi
 
-# Decompress
 if [ -f "$BASE_IMG" ] && [ ! -f "raspios_lite.img" ]; then
   log "Decompressing image..."
   xz -dk "$BASE_IMG"
@@ -69,24 +60,23 @@ if [ -f "$BASE_IMG" ] && [ ! -f "raspios_lite.img" ]; then
 fi
 
 if [ ! -f "raspios_lite.img" ]; then
-  log "ERROR: No base image found. Please download RPi OS Lite to $WORK_DIR/raspios_lite.img"
+  log "ERROR: No base image found."
   exit 1
 fi
 
 cp raspios_lite.img "$OUTPUT_IMG"
 
-# Find partitions
+# ── Partition offsets ────────────────────────────────────────────────────────
 BOOT_OFFSET=$(parted "$OUTPUT_IMG" -s unit B print | awk '/^ 1/{print $2}' | tr -d B)
 ROOT_OFFSET=$(parted "$OUTPUT_IMG" -s unit B print | awk '/^ 2/{print $2}' | tr -d B)
-
 log "Boot partition offset: $BOOT_OFFSET"
 log "Root partition offset: $ROOT_OFFSET"
 
-# Increase image size by 1GB for XNav (space for wheels and code files)
-truncate -s +1G "$OUTPUT_IMG"
+# Expand by 512 MB — the C++ build is much smaller than the Python+wheels build
+truncate -s +512M "$OUTPUT_IMG"
 parted "$OUTPUT_IMG" -s resizepart 2 100%
 
-# Mount partitions
+# ── Mount partitions ─────────────────────────────────────────────────────────
 mkdir -p "$WORK_DIR/mnt/boot" "$WORK_DIR/mnt/root"
 LOOP=$(losetup -fP --show "$OUTPUT_IMG")
 log "Loop device: $LOOP"
@@ -94,88 +84,74 @@ log "Loop device: $LOOP"
 mount "${LOOP}p1" "$WORK_DIR/mnt/boot"
 mount "${LOOP}p2" "$WORK_DIR/mnt/root"
 
-# Resize root filesystem
 e2fsck -f "${LOOP}p2" || true
 resize2fs "${LOOP}p2"
 
-# ── Prepare Python environment offline ─────────────────────────────────────────
-log "Preparing Python packages for offline installation..."
-
-# Build a temporary venv on the host to download packages
-TEMP_VENV=$(mktemp -d)
-python3 -m venv "$TEMP_VENV"
-source "$TEMP_VENV/bin/activate"
-
-log "Downloading Python packages for ARM64 (this may take a while)..."
-pip install --upgrade pip -q
-
-# Detect host architecture and request correct platform wheels
-HOST_ARCH=$(uname -m)
-if [ "$HOST_ARCH" = "aarch64" ] || [ "$HOST_ARCH" = "arm64" ]; then
-  # Native ARM64 build machine - pip downloads correct architecture automatically
-  pip download \
-    -r "$REPO_ROOT/vision_core/requirements.txt" \
-    --dest "$TEMP_VENV/wheels" \
-    --prefer-binary
-else
-  # Cross-platform build (e.g., x86_64 host) - explicitly request ARM64 wheels
-  log "Cross-platform build detected ($HOST_ARCH -> aarch64), requesting ARM64 wheels..."
-  pip download \
-    -r "$REPO_ROOT/vision_core/requirements.txt" \
-    --dest "$TEMP_VENV/wheels" \
-    --prefer-binary \
-    --platform manylinux_2_17_aarch64 \
-    --platform linux_aarch64 \
-    --python-version 311 \
-    --only-binary :all: || {
-      log "WARN: Could not download all ARM64 binary wheels, retrying without platform restriction..."
-      rm -f "$TEMP_VENV/wheels"/*.whl 2>/dev/null || true
-      pip download \
-        -r "$REPO_ROOT/vision_core/requirements.txt" \
-        --dest "$TEMP_VENV/wheels" \
-        --prefer-binary
-    }
-fi
-
-deactivate
-
-# ── Inject XNav files ────────────────────────────────────────────────────────
-log "Injecting XNav files..."
-
 ROOT="$WORK_DIR/mnt/root"
+
+# ── Inject XNav source files ─────────────────────────────────────────────────
+log "Injecting XNav files..."
 mkdir -p "$ROOT/opt/xnav"
 mkdir -p "$ROOT/etc/xnav"
+mkdir -p "$ROOT/opt/xnav/bin"
 
-cp -r "$REPO_ROOT/vision_core" "$ROOT/opt/xnav/"
+# Copy web dashboard (static HTML/CSS/JS served by the C++ binary)
 cp -r "$REPO_ROOT/web_dashboard" "$ROOT/opt/xnav/"
+
+# Copy C++ source for compilation in chroot
+cp -r "$REPO_ROOT/vision_core_cpp" "$ROOT/opt/xnav/"
+
+# Copy config and services
 cp "$REPO_ROOT/system/config/default_config.json" "$ROOT/etc/xnav/config.json"
 cp "$REPO_ROOT/system/services/xnav-vision.service" "$ROOT/etc/systemd/system/"
-cp "$REPO_ROOT/system/services/xnav-dashboard.service" "$ROOT/etc/systemd/system/"
 
-# Copy pre-downloaded wheels
-log "Copying pre-downloaded Python wheels..."
-mkdir -p "$ROOT/opt/xnav/wheels"
-cp "$TEMP_VENV"/wheels/*.whl "$ROOT/opt/xnav/wheels/"
+# ── Download vendor web assets (Bootstrap + Icons) ───────────────────────────
+log "Downloading Bootstrap vendor assets for offline web dashboard..."
+VENDOR_DIR="$ROOT/opt/xnav/web_dashboard/static/vendor"
+mkdir -p "$VENDOR_DIR"
 
-# ── Pre-install Python packages via QEMU chroot (immediate boot support) ─────
-# If qemu-aarch64-static is available, install packages now so the device
-# can start services immediately on first boot without any pip step.
-CHROOT_INSTALLED=false
+# Bootstrap CSS
+curl -sSL "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" \
+    -o "$VENDOR_DIR/bootstrap.min.css" || \
+  log "WARN: Could not download bootstrap.min.css — dashboard will need internet on first browser open"
+
+# Bootstrap JS
+curl -sSL "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" \
+    -o "$VENDOR_DIR/bootstrap.bundle.min.js" || \
+  log "WARN: Could not download bootstrap.bundle.min.js"
+
+# Bootstrap Icons CSS
+curl -sSL "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" \
+    -o "$VENDOR_DIR/bootstrap-icons.min.css" || \
+  log "WARN: Could not download bootstrap-icons.min.css"
+
+# Bootstrap Icons fonts (woff2)
+mkdir -p "$VENDOR_DIR/fonts"
+curl -sSL "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/fonts/bootstrap-icons.woff2" \
+    -o "$VENDOR_DIR/fonts/bootstrap-icons.woff2" || true
+curl -sSL "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/fonts/bootstrap-icons.woff" \
+    -o "$VENDOR_DIR/fonts/bootstrap-icons.woff" || true
+
+# Fix bootstrap-icons.min.css font path to use local /static/vendor/fonts/
+if [ -f "$VENDOR_DIR/bootstrap-icons.min.css" ]; then
+  sed -i 's|url("./fonts/|url("/static/vendor/fonts/|g' "$VENDOR_DIR/bootstrap-icons.min.css"
+fi
+
+# ── QEMU chroot: install runtime libs + compile C++ binary ───────────────────
+CHROOT_BUILT=false
 QEMU_BINARY=""
 for q in /usr/bin/qemu-aarch64-static /usr/local/bin/qemu-aarch64-static; do
   [ -f "$q" ] && QEMU_BINARY="$q" && break
 done
 
 if [ -z "$QEMU_BINARY" ] && command -v apt-get &>/dev/null; then
-  log "Installing qemu-user-static for ARM64 chroot support..."
-  apt-get install -y -qq qemu-user-static 2>&1 | tail -3 || log "WARN: qemu-user-static installation failed"
+  log "Installing qemu-user-static..."
+  apt-get install -y -qq qemu-user-static binfmt-support 2>&1 | tail -3 || true
   [ -f "/usr/bin/qemu-aarch64-static" ] && QEMU_BINARY="/usr/bin/qemu-aarch64-static"
-elif [ -z "$QEMU_BINARY" ]; then
-  log "WARN: apt-get not available, cannot install qemu-user-static"
 fi
 
 if [ -n "$QEMU_BINARY" ]; then
-  log "Pre-installing Python packages in ARM64 chroot (no first-boot install needed)..."
+  log "Building C++ binary in ARM64 chroot (QEMU)..."
   cp "$QEMU_BINARY" "$ROOT/usr/bin/qemu-aarch64-static"
 
   # Mount essential filesystems for chroot
@@ -184,14 +160,74 @@ if [ -n "$QEMU_BINARY" ]; then
   mount --bind /dev     "$ROOT/dev"     2>/dev/null || true
   mount --bind /dev/pts "$ROOT/dev/pts" 2>/dev/null || true
 
+  # Register binfmt so the kernel knows to use qemu for aarch64 binaries
+  update-binfmts --enable qemu-aarch64 2>/dev/null || true
+
   chroot "$ROOT" /bin/bash -ec '
-    python3 -m venv /opt/xnav/venv
-    /opt/xnav/venv/bin/pip install --upgrade pip -q
-    /opt/xnav/venv/bin/pip install \
-      --no-index --find-links=/opt/xnav/wheels \
-      -r /opt/xnav/vision_core/requirements.txt -q
-  ' && CHROOT_INSTALLED=true || {
-    log "WARN: QEMU chroot install failed (check ARM64 wheel compatibility), will use first-boot install"
+    export DEBIAN_FRONTEND=noninteractive
+
+    # ── Install runtime libraries + build tools ─────────────────────────
+    echo "Installing runtime libraries and build tools..."
+    apt-get update -qq
+    apt-get install -y -qq \
+        libopencv-core-dev libopencv-imgproc-dev libopencv-videoio-dev \
+        libopencv-calib3d-dev libopencv-imgcodecs-dev \
+        libapriltag-dev libgpiod-dev \
+        cmake g++ pkg-config
+
+    # ── Compile xnav binary ────────────────────────────────────────────
+    echo "Compiling XNav C++ binary..."
+    mkdir -p /opt/xnav/vision_core_cpp/build
+    cd /opt/xnav/vision_core_cpp/build
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/xnav
+    make -j4
+    make install
+    echo "Binary installed: $(ls -lh /opt/xnav/bin/xnav)"
+
+    # ── Remove build tools to save space (keep runtime libs) ──────────
+    echo "Removing build tools..."
+    apt-get remove --purge -y cmake g++ pkg-config \
+        libopencv-core-dev libopencv-imgproc-dev libopencv-videoio-dev \
+        libopencv-calib3d-dev libopencv-imgcodecs-dev \
+        libapriltag-dev libgpiod-dev 2>/dev/null || true
+    apt-get autoremove -y 2>/dev/null || true
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+    # Install only runtime libraries (much smaller)
+    apt-get update -qq
+    apt-get install -y -qq \
+        libopencv-core406 libopencv-imgproc406 libopencv-videoio406 \
+        libopencv-calib3d406 libopencv-imgcodecs406 \
+        libapriltag3 libgpiod2
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+  ' && CHROOT_BUILT=true || {
+    log "WARN: QEMU chroot build failed. Trying alternate package names..."
+
+    chroot "$ROOT" /bin/bash -ec '
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq
+      # Bookworm uses t64 suffix for some packages
+      apt-get install -y -qq \
+          libopencv-core-dev libopencv-imgproc-dev libopencv-videoio-dev \
+          libopencv-calib3d-dev libopencv-imgcodecs-dev \
+          libapriltag-dev libgpiod-dev \
+          cmake g++ pkg-config
+      mkdir -p /opt/xnav/vision_core_cpp/build
+      cd /opt/xnav/vision_core_cpp/build
+      cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/xnav
+      make -j4 && make install
+      apt-get remove --purge -y cmake g++ pkg-config 2>/dev/null || true
+      apt-get autoremove -y 2>/dev/null || true
+      apt-get clean
+      rm -rf /var/lib/apt/lists/*
+      apt-get update -qq
+      apt-get install -y -qq \
+          libapriltag3 libgpiod2 || true
+      apt-get clean
+      rm -rf /var/lib/apt/lists/*
+    ' && CHROOT_BUILT=true || log "ERROR: C++ build in chroot failed"
   }
 
   # Unmount filesystems
@@ -200,126 +236,55 @@ if [ -n "$QEMU_BINARY" ]; then
   done
   rm -f "$ROOT/usr/bin/qemu-aarch64-static"
 
-  if $CHROOT_INSTALLED; then
-    log "Python packages pre-installed - services will start immediately on boot"
-    # Point service files at the pre-installed venv and remove the wait-for-firstboot delays
-    sed -i \
-      -e "s|ExecStart=/usr/bin/python3|ExecStart=/opt/xnav/venv/bin/python3|g" \
-      -e "/ExecStartPre=\/bin\/sleep/d" \
-      "$ROOT/etc/systemd/system/xnav-vision.service" \
-      "$ROOT/etc/systemd/system/xnav-dashboard.service"
+  if $CHROOT_BUILT; then
+    log "C++ binary built and installed: /opt/xnav/bin/xnav"
+    # Remove build source to save image space
+    rm -rf "$ROOT/opt/xnav/vision_core_cpp/build"
+    # Optionally remove source (the binary is installed; source can be removed)
+    rm -rf "$ROOT/opt/xnav/vision_core_cpp"
   fi
 else
-  log "qemu-aarch64-static not available - packages will be installed from bundled wheels on first boot"
+  log "WARN: qemu-aarch64-static not available."
+  log "      C++ source is included in the image at /opt/xnav/vision_core_cpp"
+  log "      Boot the device and run: sudo bash /opt/xnav/build_on_device.sh"
+  # Create on-device build script as fallback
+  cat > "$ROOT/opt/xnav/build_on_device.sh" << 'DEVBUILD'
+#!/bin/bash
+# Build XNav C++ binary on the Raspberry Pi device
+set -e
+apt-get update
+apt-get install -y libopencv-dev libapriltag-dev libgpiod-dev cmake g++ pkg-config
+mkdir -p /opt/xnav/vision_core_cpp/build
+cd /opt/xnav/vision_core_cpp/build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/xnav
+make -j4
+make install
+apt-get remove --purge -y cmake g++ pkg-config
+apt-get autoremove -y
+systemctl restart xnav-vision.service
+echo "Build complete! XNav is running."
+DEVBUILD
+  chmod +x "$ROOT/opt/xnav/build_on_device.sh"
 fi
 
-# Enable services via symlinks
+# ── Enable service ───────────────────────────────────────────────────────────
 mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants"
 ln -sf /etc/systemd/system/xnav-vision.service \
-  "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-vision.service" 2>/dev/null || true
-ln -sf /etc/systemd/system/xnav-dashboard.service \
-  "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-dashboard.service" 2>/dev/null || true
+    "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-vision.service" 2>/dev/null || true
 
-# Create first-boot install script (uses pre-downloaded wheels, skips if venv pre-installed)
-cat > "$ROOT/etc/xnav/first_boot.sh" << 'FIRSTBOOT'
-#!/bin/bash
-# Runs once on first boot to complete installation (OFFLINE MODE)
-set -e
+# Remove old dashboard service symlink (now built into xnav binary)
+rm -f "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-dashboard.service"
 
-# Log file
-FIRSTBOOT_LOG="/var/log/xnav-firstboot.log"
-exec > >(tee -a "$FIRSTBOOT_LOG") 2>&1
-
-echo "========================================="
-echo "XNav First-Boot Setup - $(date)"
-echo "========================================="
-
-cd /opt/xnav
-
-# Check if Python packages were already pre-installed during ISO build
-if [ -f /opt/xnav/venv/bin/python3 ]; then
-  echo "Python venv pre-installed - skipping package installation"
-else
-  # Install Python packages from pre-downloaded wheels (OFFLINE, no internet needed)
-  echo "Creating Python virtual environment..."
-  python3 -m venv venv
-
-  echo "Installing Python packages from pre-bundled wheels (offline)..."
-  venv/bin/pip install --upgrade pip -q
-  venv/bin/pip install --no-index --find-links=/opt/xnav/wheels \
-    -r /opt/xnav/vision_core/requirements.txt -q
-
-  # Update service files to use venv Python
-  echo "Updating systemd service files..."
-  sed -i "s|/usr/bin/python3|/opt/xnav/venv/bin/python3|g" \
-    /etc/systemd/system/xnav-vision.service \
-    /etc/systemd/system/xnav-dashboard.service
-
-  # Reload systemd
-  echo "Reloading systemd..."
-  systemctl daemon-reload
-fi
-
-# Enable services
-echo "Enabling XNav services..."
-systemctl enable xnav-vision.service 2>/dev/null || true
-systemctl enable xnav-dashboard.service 2>/dev/null || true
-
-# Restart services (or start if not running yet)
-echo "Starting XNav services..."
-systemctl restart xnav-vision.service || systemctl start xnav-vision.service || true
-sleep 2
-systemctl restart xnav-dashboard.service || systemctl start xnav-dashboard.service || true
-
-# Check service status
-echo ""
-echo "Service Status:"
-echo "==============="
-systemctl status xnav-vision.service --no-pager || true
-echo ""
-systemctl status xnav-dashboard.service --no-pager || true
-echo ""
-
-# Mark done
-echo "First-boot setup complete! (Offline mode)"
-echo "Dashboard: http://xnav.local:5800"
-echo "========================================="
-rm -f /etc/xnav/first_boot.sh
-FIRSTBOOT
-chmod +x "$ROOT/etc/xnav/first_boot.sh"
-
-# rc.local: run first boot if needed
-RCLOCAL="$ROOT/etc/rc.local"
-if [ -f "$RCLOCAL" ]; then
-  # Remove old first_boot call if exists
-  sed -i '/first_boot.sh/d' "$RCLOCAL"
-  # Add new first_boot call before exit 0
-  sed -i '/^exit 0/i [ -f /etc/xnav/first_boot.sh ] \&\& bash /etc/xnav/first_boot.sh &' "$RCLOCAL"
-else
-  # Create rc.local if it doesn't exist
-  cat > "$RCLOCAL" << 'RCEOF'
-#!/bin/bash
-# rc.local - local startup script
-
-# Run XNav first-boot setup if needed
-[ -f /etc/xnav/first_boot.sh ] && bash /etc/xnav/first_boot.sh &
-
-exit 0
-RCEOF
-  chmod +x "$RCLOCAL"
-fi
-
-# Enable rc-local service
-mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants"
-ln -sf /lib/systemd/system/rc-local.service \
-  "$ROOT/etc/systemd/system/multi-user.target.wants/rc-local.service"
-
-# Set hostname
+# ── Set hostname ─────────────────────────────────────────────────────────────
 echo "xnav" > "$ROOT/etc/hostname"
+sed -i '/127.0.1.1/d' "$ROOT/etc/hosts"
 echo "127.0.1.1    xnav" >> "$ROOT/etc/hosts"
 
-# Boot config
+# ── Boot config ──────────────────────────────────────────────────────────────
 BOOTCFG="$WORK_DIR/mnt/boot/config.txt"
+# Remove any existing XNav block before re-adding
+grep -v "# XNav" "$BOOTCFG" > /tmp/config_clean.txt || true
+mv /tmp/config_clean.txt "$BOOTCFG"
 cat >> "$BOOTCFG" << 'BOOTEOF'
 # XNav Configuration
 start_x=1
@@ -327,32 +292,33 @@ gpu_mem=128
 disable_camera_led=1
 BOOTEOF
 
-# Network configuration - use DHCP for eth0
+# ── Network configuration ────────────────────────────────────────────────────
 mkdir -p "$ROOT/etc/network/interfaces.d"
-NETWORK_CFG="$ROOT/etc/network/interfaces.d/eth0"
-cat > "$NETWORK_CFG" << 'NETEOF'
+cat > "$ROOT/etc/network/interfaces.d/eth0" << 'NETEOF'
 # XNav Network Configuration - eth0 gets IP via DHCP from robot
 auto eth0
 iface eth0 inet dhcp
 NETEOF
 
-# Clean up temporary venv
-rm -rf "$TEMP_VENV"
+# ── rc.local: no first-boot needed for C++ (binary is already installed) ─────
+RCLOCAL="$ROOT/etc/rc.local"
+cat > "$RCLOCAL" << 'RCEOF'
+#!/bin/bash
+# XNav rc.local - services start via systemd
+exit 0
+RCEOF
+chmod +x "$RCLOCAL"
 
-# ── Shrink filesystem & cleanup ───────────────────────────────────────────────
+# ── Shrink filesystem & cleanup ──────────────────────────────────────────────
 log "Unmounting filesystems..."
 sync
 umount "$WORK_DIR/mnt/boot"
 umount "$WORK_DIR/mnt/root"
 
-# Shrink the root filesystem to its minimum size.
-# This eliminates the large block of empty space added by truncate,
-# which would otherwise slow eMMC flashing to a crawl (the 91% stall).
 log "Shrinking root filesystem to minimum size..."
-e2fsck -fy "${LOOP}p2"; EC=$?; [ $EC -le 2 ] || { log "ERROR: e2fsck returned $EC (filesystem has errors)"; losetup -d "$LOOP"; exit 1; }
+e2fsck -fy "${LOOP}p2"; EC=$?; [ $EC -le 2 ] || { log "ERROR: e2fsck returned $EC"; losetup -d "$LOOP"; exit 1; }
 resize2fs -M "${LOOP}p2"
 
-# Read the resulting filesystem size
 TUNE2FS_OUT=$(tune2fs -l "${LOOP}p2" 2>/dev/null)
 FS_BLOCKS=$(echo "$TUNE2FS_OUT" | grep "^Block count:" | awk '{print $NF}')
 FS_BLOCK_SZ=$(echo "$TUNE2FS_OUT" | grep "^Block size:" | awk '{print $NF}')
@@ -366,16 +332,14 @@ log "Root filesystem: $((FS_BYTES / 1024 / 1024)) MiB"
 
 losetup -d "$LOOP"
 
-# Shrink the partition to match the filesystem (2 MiB alignment buffer)
 NEW_PART_END=$(( ROOT_OFFSET + FS_BYTES + 2 * 1024 * 1024 ))
 parted "$OUTPUT_IMG" -s resizepart 2 ${NEW_PART_END}B
 
-# Truncate the image file to remove the now-unused trailing space (1 MiB tail)
 NEW_IMG_SIZE=$(( NEW_PART_END + 1 * 1024 * 1024 ))
 truncate -s "$NEW_IMG_SIZE" "$OUTPUT_IMG"
 log "Image size after shrink: $((NEW_IMG_SIZE / 1024 / 1024)) MiB"
 
-# Compress
+# ── Compress ─────────────────────────────────────────────────────────────────
 log "Compressing image..."
 xz -v -T0 -9 "$OUTPUT_IMG"
 

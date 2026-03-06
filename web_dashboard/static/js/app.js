@@ -4,13 +4,25 @@
 
 "use strict";
 
-// ── Socket.IO ────────────────────────────────────────────────────────────────
-const socket = io();
+// ── Server-Sent Events (replaces Socket.IO) ───────────────────────────────────
+let _evtSource = null;
 let _matchMode = false;
 
-socket.on("connect", () => console.log("WS connected"));
-socket.on("state_update", updateState);
-socket.on("calibration_result", onCalibrationResult);
+function connectSSE() {
+  if (_evtSource) _evtSource.close();
+  _evtSource = new EventSource("/api/stream");
+  _evtSource.onmessage = function(e) {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "state_update") updateState(msg.data);
+      else if (msg.type === "calibration_result") onCalibrationResult(msg.data);
+    } catch (_) {}
+  };
+  _evtSource.onerror = function() {
+    // Auto-reconnect is built into EventSource; just log
+    console.warn("SSE connection error, reconnecting...");
+  };
+}
 
 // ── Tab navigation ────────────────────────────────────────────────────────────
 document.querySelectorAll("[data-tab]").forEach(link => {
@@ -442,6 +454,8 @@ function showToast(msg, type = "success") {
 
 // ── Initial load ──────────────────────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", () => {
+  // Connect SSE for real-time state updates
+  connectSSE();
   // Load initial status
   fetch("/api/status").then(r => r.json()).then(updateState).catch(() => {});
   // Load match mode state

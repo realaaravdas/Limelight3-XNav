@@ -1,21 +1,6 @@
-[Unit]
-Description=XNav Web Dashboard
-After=network-online.target xnav-vision.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=root
-# Python interpreter will be updated by first-boot script to use venv
-ExecStart=/usr/bin/python3 /opt/xnav/web_dashboard/app.py
-WorkingDirectory=/opt/xnav
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-Environment="XNAV_CONFIG=/etc/xnav/config.json"
-# Delay start to allow first-boot setup to complete
-ExecStartPre=/bin/sleep 15
-
-[Install]
-WantedBy=multi-user.target
+# xnav-dashboard.service is no longer needed.
+# The web dashboard (port 5800) is now built into the C++ xnav binary
+# and served by xnav-vision.service.
+#
+# This file is kept for backwards compatibility but should NOT be enabled.
+# All dashboard functionality is served by /opt/xnav/bin/xnav on port 5800.

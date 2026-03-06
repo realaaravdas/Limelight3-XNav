@@ -1,5 +1,5 @@
 #!/bin/bash
-# XNav Setup Script
+# XNav Setup Script (C++ edition)
 # Run as root on a Raspberry Pi CM (Raspberry Pi OS Lite 64-bit)
 # Usage: sudo bash setup.sh
 
@@ -17,70 +17,44 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 log "═══════════════════════════════════════════"
-log "  XNav Vision System - Installation"
+log "  XNav Vision System - Installation (C++)"
 log "═══════════════════════════════════════════"
 
 # ── System dependencies ──────────────────────────────────────────────────────
 log "Updating package lists..."
 apt-get update -qq
 
-log "Installing system packages..."
+log "Installing runtime libraries..."
 apt-get install -y -qq \
-  python3 python3-pip python3-venv python3-dev \
-  libcamera-apps libcamera-dev \
-  libatlas-base-dev \
-  libhdf5-dev libhdf5-serial-dev \
-  libgtk-3-0 \
-  libavcodec-dev libavformat-dev libswscale-dev \
-  libjpeg-dev libpng-dev libtiff-dev \
-  v4l-utils \
-  git curl \
-  hostapd dhcpcd5 \
-  pigpio \
+  libopencv-core-dev libopencv-imgproc-dev libopencv-videoio-dev \
+  libopencv-calib3d-dev libopencv-imgcodecs-dev \
+  libapriltag-dev libgpiod-dev \
+  v4l-utils curl git \
   2>&1 | tail -5
 
-# ── Enable camera & GPIO ─────────────────────────────────────────────────────
+log "Installing build tools (will remove after compile)..."
+apt-get install -y -qq cmake g++ pkg-config 2>&1 | tail -3
+
+# ── Enable camera ─────────────────────────────────────────────────────────────
 log "Enabling camera interface..."
-if ! grep -q "^start_x=1" /boot/config.txt 2>/dev/null; then
-  echo "start_x=1" >> /boot/config.txt
-fi
-if ! grep -q "^gpu_mem=128" /boot/config.txt 2>/dev/null; then
-  echo "gpu_mem=128" >> /boot/config.txt
-fi
-# Disable camera LED (Limelight doesn't need it)
-if ! grep -q "disable_camera_led=1" /boot/config.txt 2>/dev/null; then
-  echo "disable_camera_led=1" >> /boot/config.txt
-fi
-
-# ── Performance tweaks ───────────────────────────────────────────────────────
-log "Applying performance configuration..."
-
-# CPU Governor
-if [ -f /etc/rc.local ]; then
-  grep -q "performance" /etc/rc.local || \
-    sed -i '/^exit 0/i for governor in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > $governor; done' /etc/rc.local
-fi
-
-# GPU memory split for vision
-cat > /boot/config.txt.xnav_perf << 'EOF'
-# XNav performance settings
-arm_freq=1800
-gpu_freq=750
-over_voltage=6
-EOF
+BOOTCFG="/boot/config.txt"
+[ -f "/boot/firmware/config.txt" ] && BOOTCFG="/boot/firmware/config.txt"
+grep -q "^start_x=1" "$BOOTCFG" 2>/dev/null || echo "start_x=1" >> "$BOOTCFG"
+grep -q "^gpu_mem=128" "$BOOTCFG" 2>/dev/null || echo "gpu_mem=128" >> "$BOOTCFG"
+grep -q "^disable_camera_led=1" "$BOOTCFG" 2>/dev/null || echo "disable_camera_led=1" >> "$BOOTCFG"
 
 # ── Install XNav ─────────────────────────────────────────────────────────────
 log "Installing XNav to $XNAV_DIR..."
 mkdir -p "$XNAV_DIR"
+mkdir -p "$XNAV_DIR/bin"
 mkdir -p "$XNAV_CFG"
 mkdir -p /var/log
 
-# Copy application files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-cp -r "$REPO_ROOT/vision_core" "$XNAV_DIR/"
 cp -r "$REPO_ROOT/web_dashboard" "$XNAV_DIR/"
+cp -r "$REPO_ROOT/vision_core_cpp" "$XNAV_DIR/"
 
 # Install default config
 if [ ! -f "$XNAV_CFG/config.json" ]; then
@@ -88,46 +62,34 @@ if [ ! -f "$XNAV_CFG/config.json" ]; then
   log "Installed default config"
 fi
 
-# ── Python virtual environment ───────────────────────────────────────────────
-log "Creating Python virtual environment..."
-python3 -m venv "$XNAV_DIR/venv"
-source "$XNAV_DIR/venv/bin/activate"
+# ── Compile C++ binary ───────────────────────────────────────────────────────
+log "Compiling XNav C++ binary..."
+mkdir -p "$XNAV_DIR/vision_core_cpp/build"
+cd "$XNAV_DIR/vision_core_cpp/build"
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$XNAV_DIR"
+make -j4
+make install
+log "Binary installed: $(ls -lh $XNAV_DIR/bin/xnav)"
 
-log "Installing Python packages (this may take a while)..."
-pip install --upgrade pip -q
+# Remove build source and tools to save space
+log "Removing build tools..."
+apt-get remove --purge -y cmake g++ pkg-config 2>/dev/null || true
+apt-get autoremove -y 2>/dev/null || true
+cd /
+rm -rf "$XNAV_DIR/vision_core_cpp"
 
-# Try to use pre-downloaded wheels if available (offline mode)
-if [ -d "$XNAV_DIR/wheels" ] && [ "$(ls -A $XNAV_DIR/wheels/*.whl 2>/dev/null)" ]; then
-    log "Installing from pre-downloaded wheels (offline mode)..."
-    pip install --no-index --find-links="$XNAV_DIR/wheels" -r "$XNAV_DIR/vision_core/requirements.txt" -q
-else
-    # Fallback to online installation
-    log "Installing from PyPI (online mode)..."
-    pip install -r "$XNAV_DIR/vision_core/requirements.txt" -q
-fi
-deactivate
-
-# Update service scripts to use venv (only the installed copies)
-log "Installing systemd services..."
+# ── systemd service ──────────────────────────────────────────────────────────
+log "Installing systemd service..."
 cp "$REPO_ROOT/system/services/xnav-vision.service" /etc/systemd/system/
-cp "$REPO_ROOT/system/services/xnav-dashboard.service" /etc/systemd/system/
-
-# Update installed service files to use the venv interpreter
-sed -i "s|/usr/bin/python3|$XNAV_DIR/venv/bin/python3|g" \
-  /etc/systemd/system/xnav-vision.service \
-  /etc/systemd/system/xnav-dashboard.service
-
 systemctl daemon-reload
 systemctl enable xnav-vision.service
-systemctl enable xnav-dashboard.service
 
 # ── Hostname ─────────────────────────────────────────────────────────────────
 log "Setting hostname to 'xnav'..."
-hostnamectl set-hostname xnav
-echo "127.0.1.1    xnav" >> /etc/hosts
+hostnamectl set-hostname xnav 2>/dev/null || echo "xnav" > /etc/hostname
+grep -q "127.0.1.1.*xnav" /etc/hosts || echo "127.0.1.1    xnav" >> /etc/hosts
 
 # ── Permissions ─────────────────────────────────────────────────────────────
-chmod -R 755 "$XNAV_DIR"
 chmod 644 "$XNAV_CFG/config.json"
 
 log "═══════════════════════════════════════════"
@@ -136,7 +98,7 @@ log "  Dashboard: http://xnav.local:5800"
 log "  Reboot to start services."
 log "═══════════════════════════════════════════"
 echo
-echo "  Reboot now? (y/N)"
+echo -n "  Reboot now? (y/N) "
 read -r ans
 if [[ "$ans" =~ ^[Yy]$ ]]; then
   reboot
