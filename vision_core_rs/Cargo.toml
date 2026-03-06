@@ -21,6 +21,7 @@ opencv = { version = "0.93", default-features = false, features = [
     "imgproc",
     "imgcodecs",
     "objdetect",
+    "aruco",
 ] }
 
 # Logging
@@ -34,6 +35,10 @@ mime_guess = "2"
 
 # Sync primitives
 parking_lot = "0.12"
+
+# Async streams (MJPEG server-push)
+tokio-stream = "0.1"
+async-stream = "0.3"
 
 # NT4 protocol (WebSocket + MessagePack)
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }

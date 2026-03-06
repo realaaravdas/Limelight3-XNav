@@ -1,13 +1,14 @@
-//! AprilTag detector using OpenCV's ArUco/objdetect module.
+//! AprilTag detector using OpenCV's ArUco module.
 //!
 //! Rust port of `vision_core/src/apriltag_detector.py`.
 //! Detects AprilTag 36h11 markers and computes 3D pose via solvePnP.
+//! Uses the classic `cv::aruco` API (OpenCV 4.x contrib module).
 
 use crate::config::ConfigManager;
 use opencv::{
+    aruco,
     calib3d,
-    core::{self, Mat, Point2f, Point3f, Vector},
-    objdetect,
+    core::{self, Mat, Ptr, Point2f, Point3f, Vector},
     prelude::*,
 };
 use parking_lot::Mutex;
@@ -98,7 +99,8 @@ fn rvec_to_euler(rvec: &[f64]) -> (f64, f64, f64) {
 
 struct DetectorInner {
     cfg: ConfigManager,
-    detector: objdetect::ArucoDetector,
+    dict: Ptr<aruco::Dictionary>,
+    params: Ptr<aruco::DetectorParameters>,
     camera_matrix: Option<Mat>,
     dist_coeffs: Option<Mat>,
     tag_size: f64,
@@ -120,13 +122,14 @@ impl AprilTagDetector {
     /// Create a new detector, loading calibration from `cfg`.
     pub fn new(cfg: ConfigManager) -> Self {
         let tag_size = cfg.get_f64(&["apriltag", "tag_size"], 0.1524);
-        let detector = Self::create_aruco_detector();
+        let (dict, params) = Self::create_aruco_dict_and_params();
         let (camera_matrix, dist_coeffs) = Self::load_calibration_from_config(&cfg);
 
         Self {
             inner: Arc::new(Mutex::new(DetectorInner {
                 cfg,
-                detector,
+                dict,
+                params,
                 camera_matrix,
                 dist_coeffs,
                 tag_size,
@@ -142,7 +145,14 @@ impl AprilTagDetector {
         let mut ids = Mat::default();
         let mut rejected: Vector<Vector<Point2f>> = Vector::new();
 
-        if let Err(e) = inner.detector.detect_markers(gray, &mut corners, &mut ids, &mut rejected) {
+        if let Err(e) = aruco::detect_markers(
+            gray,
+            &inner.dict,
+            &mut corners,
+            &mut ids,
+            &inner.params,
+            &mut rejected,
+        ) {
             tracing::warn!("ArUco detect_markers failed: {e}");
             return Vec::new();
         }
@@ -253,7 +263,9 @@ impl AprilTagDetector {
     pub fn reload_config(&mut self) {
         let mut inner = self.inner.lock();
         inner.tag_size = inner.cfg.get_f64(&["apriltag", "tag_size"], 0.1524);
-        inner.detector = Self::create_aruco_detector();
+        let (dict, params) = Self::create_aruco_dict_and_params();
+        inner.dict = dict;
+        inner.params = params;
         let (cam, dist) = Self::load_calibration_from_config(&inner.cfg);
         inner.camera_matrix = cam;
         inner.dist_coeffs = dist;
@@ -272,22 +284,17 @@ impl AprilTagDetector {
     // Internal helpers
     // ------------------------------------------------------------------
 
-    /// Build an `ArucoDetector` configured for AprilTag 36h11.
-    fn create_aruco_detector() -> objdetect::ArucoDetector {
-        let dict = objdetect::get_predefined_dictionary(
-            objdetect::PredefinedDictionaryType::DICT_APRILTAG_36h11,
+    /// Build an ArUco dictionary and detector parameters for AprilTag 36h11.
+    fn create_aruco_dict_and_params() -> (Ptr<aruco::Dictionary>, Ptr<aruco::DetectorParameters>) {
+        let dict = aruco::get_predefined_dictionary(
+            aruco::PREDEFINED_DICTIONARY_NAME::DICT_APRILTAG_36h11,
         )
         .expect("Failed to load DICT_APRILTAG_36h11");
 
-        let params =
-            objdetect::DetectorParameters::default().expect("Failed to create DetectorParameters");
+        let params = aruco::DetectorParameters::create()
+            .expect("Failed to create DetectorParameters");
 
-        objdetect::ArucoDetector::new(
-            &dict,
-            &params,
-            &objdetect::RefineParameters::default().expect("RefineParameters"),
-        )
-        .expect("Failed to create ArucoDetector")
+        (dict, params)
     }
 
     /// Extract (fx, fy, cx, cy) from calibration or estimate defaults.
@@ -356,16 +363,20 @@ impl AprilTagDetector {
         if nrows == 0 {
             return Err("empty matrix".into());
         }
-        let ncols = rows[0].len() as i32;
         let flat: Vec<f64> = rows.into_iter().flatten().collect();
-        Mat::from_slice(&flat)
-            .and_then(|m| m.reshape(1, nrows))
-            .map_err(|e| e.to_string())
+        let row_mat = Mat::from_slice(&flat)
+            .map_err(|e| format!("from_slice failed: {e}"))?;
+        row_mat
+            .reshape(1, nrows)
+            .map(|br| br.clone_pointee())
+            .map_err(|e| format!("reshape failed: {e}"))
     }
 
     /// Parse a JSON 1-D array into a single-row CV_64F Mat.
     fn json_to_mat_1d(val: &serde_json::Value) -> Result<Mat, String> {
         let flat: Vec<f64> = serde_json::from_value(val.clone()).map_err(|e| e.to_string())?;
-        Mat::from_slice(&flat).map_err(|e| e.to_string())
+        Mat::from_slice(&flat)
+            .map(|br| br.clone_pointee())
+            .map_err(|e| e.to_string())
     }
 }

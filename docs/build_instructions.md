@@ -2,15 +2,35 @@
 
 ## Building the ISO Image
 
-This guide explains how to build a flashable Raspberry Pi OS image with XNav pre-installed.
+This guide explains how to build a flashable Raspberry Pi OS image with XNav pre-installed as a Rust binary.
+
+> **See also**: [docs/build_iso.md](build_iso.md) for the detailed step-by-step guide including balenaEtcher and Raspberry Pi Imager instructions.
 
 ### Prerequisites
 
-- Linux system with root/sudo access
-- At least 8GB free disk space
-- Internet connection
-- `xz` utility (for compression)
-- `curl` or `wget`
+Install the following on your Ubuntu/Debian build machine:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+    parted \
+    e2fsprogs \
+    xz-utils \
+    curl \
+    git \
+    util-linux \
+    qemu-user-static \
+    binfmt-support
+```
+
+Optional (for faster cross-compilation via Docker):
+
+```bash
+curl -fsSL https://get.docker.com | bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source ~/.cargo/env
+cargo install cross
+```
 
 ### Quick Build
 
@@ -19,22 +39,24 @@ cd /path/to/Limelight3-XNav
 sudo bash system/scripts/build_iso.sh
 ```
 
-The build process will:
-1. Download Raspberry Pi OS Lite (64-bit) base image
-2. Mount and expand the image
-3. Inject XNav files and configuration
-4. Set up first-boot installation script
-5. Compress the final image
+**Output:** `xnav-1.1.0.img.xz`
 
-**Output:** `xnav-1.0.0.img.xz`
+### Build Compilation Methods
+
+The build script tries the following methods in order to compile the ARM64 Rust binary:
+
+| Method | Requirements | Time |
+|--------|-------------|------|
+| Pre-built binary (`vision_core_rs/dist/xnav-aarch64`) | Binary file present | Instant |
+| `cross` tool (Docker) | Docker + `cross` installed | ~10 min |
+| QEMU chroot (native ARM64) | `qemu-user-static` | ~20-40 min |
+| First-boot compilation | None (compiles on device) | ~20-40 min on device |
 
 ### Build Time
 
 - Download base image: ~500 MB (varies by connection)
-- Build process: 5-10 minutes
-- Compression: 10-20 minutes
-
-Total: ~15-40 minutes
+- Rust binary compilation (QEMU): 20-40 minutes
+- Image compression: 5-10 minutes
 
 ### Detailed Build Process
 
@@ -48,108 +70,82 @@ https://downloads.raspberrypi.org/raspios_lite_arm64_latest
 #### 2. Image Preparation
 
 - Decompress the base image
-- Expand by 2GB for XNav packages
+- Expand by 512 MB for XNav binary + OpenCV runtime
 - Mount boot and root partitions
 
 #### 3. File Injection
 
 The following are copied to the image:
 
-**Application Files:**
-- `/opt/xnav/vision_core/` - Vision processing code
-- `/opt/xnav/web_dashboard/` - Flask web interface
-
 **Configuration:**
-- `/etc/xnav/config.json` - Default configuration
-- `/etc/xnav/first_boot.sh` - First-boot setup script
-- `/etc/hostname` - Set to "xnav"
-- `/etc/hosts` - Hostname mapping
-- `/boot/config.txt` - Boot configuration (camera, GPU memory)
-- `/etc/network/interfaces.d/eth0` - Network configuration (DHCP)
+- `/etc/xnav/config.json` — Default configuration
+- `/etc/hostname` — Set to `xnav`
+- `/etc/hosts` — Hostname mapping
+- `/boot/config.txt` — Camera + GPU memory settings
+- `/etc/network/interfaces.d/eth0` — DHCP network config
 
-**Systemd Services:**
-- `/etc/systemd/system/xnav-vision.service` - Vision pipeline service
-- `/etc/systemd/system/xnav-dashboard.service` - Web dashboard service
-- `/etc/systemd/system/multi-user.target.wants/` - Service symlinks
+**Service:**
+- `/etc/systemd/system/xnav-vision.service` — Unified vision + dashboard service
+- `/etc/systemd/system/multi-user.target.wants/xnav-vision.service` — Autostart symlink
 
-#### 4. First-Boot Setup
+**Binary:**
+- `/opt/xnav/bin/xnav` — Compiled Rust binary (vision + dashboard in one process)
 
-On first boot, `/etc/xnav/first_boot.sh` (run via `/etc/rc.local`) will:
+#### 4. Rust Binary Compilation
 
-1. Create Python virtual environment at `/opt/xnav/venv/`
-2. Install Python dependencies from `requirements.txt`
-3. Update service files to use venv Python interpreter
-4. Reload systemd daemon
-5. Enable and start services
-6. Log progress to `/var/log/xnav-firstboot.log`
-7. Remove itself to prevent re-running
+The `xnav` binary is compiled for `aarch64` ARM64. It embeds the web dashboard assets at compile time (via `rust-embed`), so no Python runtime, wheels, or separate web server process is needed.
 
-**Important:** The first-boot process takes 5-10 minutes, depending on:
-- Internet connection speed (for pip downloads)
-- Raspberry Pi CM4 model
-- Network performance
+The binary links against system OpenCV libraries which are pre-installed in the image during QEMU chroot compilation.
 
-During this time, the services may restart multiple times as dependencies are installed.
+#### 5. First-Boot Fallback
+
+If no binary is compiled at build time, a first-boot script (`/etc/xnav/first_boot.sh`) installs the Rust toolchain and OpenCV dev libraries, compiles the binary on the device, then starts the service. This is a one-time operation.
 
 ### Service Architecture
 
-XNav runs two systemd services:
+XNav runs as a **single systemd service**:
 
 #### xnav-vision.service
-- **Purpose:** Core vision pipeline (AprilTag detection, NT4 publishing)
-- **Port:** None (internal)
-- **Dependencies:** Network
+- **Purpose:** Vision pipeline (AprilTag detection, NT4) + web dashboard (port 5800) in one process
+- **Binary:** `/opt/xnav/bin/xnav`
 - **Priority:** High (CPU cores 0-3, nice=-10, realtime I/O)
-- **Environment:** `XNAV_DISABLE_DASHBOARD=1` (to prevent duplicate dashboard)
-
-#### xnav-dashboard.service
-- **Purpose:** Web configuration interface
-- **Port:** 5800 (HTTP)
-- **Dependencies:** Network + vision service
-- **Priority:** Normal
-- **Environment:** `XNAV_CONFIG=/etc/xnav/config.json`
+- **Config:** `/etc/xnav/config.json`
 
 ### Troubleshooting Build Issues
 
 #### Build Fails with "No base image found"
 
-Manually download the base image:
 ```bash
 cd /tmp/xnav-build
 wget https://downloads.raspberrypi.org/raspios_lite_arm64_latest
-xzcat raspios_lite_arm64_latest | sudo dd of=raspios_lite.img bs=4M status=progress
+xzcat raspios_lite_arm64_latest > raspios_lite.img
 ```
 
-Then re-run the build script (it will skip download).
+Then re-run the build script.
 
-#### Build Fails with Permission Errors
+#### QEMU Chroot Build Fails / Runs Out of Space
 
-Ensure you're running with sudo:
 ```bash
+# Edit build_iso.sh: increase image expansion
+# Change: truncate -s +512M "$OUTPUT_IMG"
+# To:      truncate -s +2G "$OUTPUT_IMG"
+```
+
+Or use Docker + `cross` instead:
+```bash
+cargo install cross
+cross build --release --target aarch64-unknown-linux-gnu
+mkdir -p vision_core_rs/dist
+cp vision_core_rs/target/aarch64-unknown-linux-gnu/release/xnav \
+    vision_core_rs/dist/xnav-aarch64
 sudo bash system/scripts/build_iso.sh
-```
-
-#### Image Too Large
-
-The script expands the image by 2GB. If you need more space:
-```bash
-# Edit build_iso.sh line 86
-# Change: truncate -s +2G "$OUTPUT_IMG"
-# To:      truncate -s +4G "$OUTPUT_IMG"
 ```
 
 #### Build Fails During Compression
 
-If you run out of disk space during compression:
 ```bash
-# Clean up temporary files
-cd /tmp
-rm -rf xnav-build
-
-# Build again with less compression
-# Edit build_iso.sh line 165
-# Change: xz -v -T0 -9 "$OUTPUT_IMG"
-# To:      xz -v -T0 -6 "$OUTPUT_IMG"
+# Use less aggressive compression (faster, slightly larger file)
+# Edit build_iso.sh: change xz -v -T0 -9 to xz -v -T0 -6
 ```
 
 ## Flashing the Image
@@ -157,85 +153,38 @@ rm -rf xnav-build
 ### Using Raspberry Pi Imager (Recommended)
 
 1. Download [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
-2. Open Raspberry Pi Imager
-3. Click "Choose OS" → "Use custom image" → select `xnav-1.0.0.img.xz`
-4. Click "Choose Storage" → select your CM4 eMMC or SD card
-5. Click "Write" and wait for completion
+2. **Choose OS** → **Use custom image** → select `xnav-1.1.0.img.xz`
+3. **Choose Storage** → select your CM4 eMMC or SD card
+4. Click **Write** and wait for completion
 
 ### Using balenaEtcher
 
 1. Download [balenaEtcher](https://etcher.balena.io/)
-2. Click "Flash from file" → select `xnav-1.0.0.img.xz`
-3. Click "Select target" → choose your CM4 eMMC / SD card
-4. Click "Flash!" and wait for completion
+2. **Flash from file** → select `xnav-1.1.0.img.xz`
+3. **Select target** → choose your CM4 eMMC / SD card
+4. **Flash!** and wait
 
 ### Using Command Line (Linux)
 
 ```bash
-# Decompress and flash
-xzcat xnav-1.0.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+xzcat xnav-1.1.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
 sync
-
-# Replace /dev/sdX with your device (e.g., /dev/sda, /dev/mmcblk0)
-# Be careful - this will erase all data on the device!
-```
-
-### Using Command Line (macOS)
-
-```bash
-# Find your device
-diskutil list
-
-# Unmount the disk (replace N with disk number)
-diskutil unmountDisk /dev/diskN
-
-# Decompress and flash
-xzcat xnav-1.0.0.img.xz | sudo dd of=/dev/rdiskN bs=4m status=progress
-sync
+# Replace /dev/sdX with your device
 ```
 
 ## First Boot
 
-After flashing and powering on the device:
+After flashing and powering on:
 
-1. **Wait 5-10 minutes** for first-boot setup to complete
-2. Check status via SSH (default hostname: `xnav.local`):
-   ```bash
-   ssh root@xnav.local
-   # Check first-boot log
-   cat /var/log/xnav-firstboot.log
-   ```
-3. Access web dashboard: `http://xnav.local:5800`
-4. Configure your team number and other settings
+1. Services start **immediately** (binary is pre-compiled in the image)
+2. Access dashboard: `http://xnav.local:5800`
 
-### First-Boot Status Indicators
-
-**Working correctly:**
-- Device responds to ping
-- First-boot script runs (check `/var/log/xnav-firstboot.log`)
-- Services start after ~5-10 minutes
-- Dashboard accessible at port 5800
-
-**Issues:**
-- Services fail to start: Check `/var/log/xnav-firstboot.log`
-- Dashboard not accessible: See [Troubleshooting Guide](troubleshooting.md)
-- No network connection: Check ethernet cable and robot network
-
-## Version Information
-
-Current XNav version: `1.0.0`
-
-To check installed version (after flashing):
-```bash
-cat /etc/xnav/version
-# Or check git tag if building from source
-cd /path/to/Limelight3-XNav
-git describe --tags
-```
+If the binary was not compiled at build time (first-boot compilation fallback):
+1. Wait 20-40 minutes for compilation
+2. Monitor: `ssh root@xnav.local && tail -f /var/log/xnav-firstboot.log`
+3. Access dashboard: `http://xnav.local:5800`
 
 ## Updating an Existing Installation
-
-If you have XNav already installed and want to update:
 
 ```bash
 # SSH into device
@@ -245,14 +194,12 @@ ssh root@xnav.local
 cd /opt/xnav-src
 git pull
 
-# Re-run setup
+# Re-run setup (recompiles and redeploys)
 sudo bash system/scripts/setup.sh
-
-# Reboot
 sudo reboot
 ```
 
-**Note:** This will update code but preserve your configuration in `/etc/xnav/config.json`.
+**Note:** Configuration in `/etc/xnav/config.json` is preserved.
 
 ## Customizing the Build
 
@@ -262,37 +209,6 @@ Edit `system/config/default_config.json` before building:
 
 ```bash
 nano system/config/default_config.json
-```
-
-Common customizations:
-- Team number
-- Camera settings
-- Network configuration
-- AprilTag parameters
-
-### Adding Additional Packages
-
-Edit the first-boot script in `build_iso.sh`:
-
-```bash
-# Find the pip install line
-pip install -r /opt/xnav/vision_core/requirements.txt -q
-
-# Add custom packages
-pip install <package-name> -q
-```
-
-### Changing Hostname
-
-Edit the build script:
-
-```bash
-# Find line 144
-echo "xnav" > "$ROOT/etc/hostname"
-
-# Change to your preferred hostname
-echo "myxnav" > "$ROOT/etc/hostname"
-echo "127.0.1.1    myxnav" >> "$ROOT/etc/hosts"
 ```
 
 ### Changing Web Port
@@ -305,11 +221,20 @@ Edit `system/config/default_config.json`:
 }
 ```
 
-Or configure via dashboard after installation.
+### Changing Hostname
+
+Edit `build_iso.sh`:
+
+```bash
+# Find: echo "xnav" > "$ROOT/etc/hostname"
+# Change to your hostname
+echo "myxnav" > "$ROOT/etc/hostname"
+```
 
 ## Support
 
 For build issues:
-1. Check this guide
+1. Check [docs/build_iso.md](build_iso.md)
 2. Review [Troubleshooting Guide](troubleshooting.md)
 3. Check GitHub Issues: https://github.com/realaaravdas/Limelight3-XNav/issues
+

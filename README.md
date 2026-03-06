@@ -4,11 +4,13 @@
 
 **XNav** is a custom, headless AprilTag vision system for FRC robots, designed to run on Raspberry Pi Compute Module 4 hardware (as used in the Limelight 3). It communicates with the roboRIO via WPILib NetworkTables 4, features a web configuration dashboard, and includes a C++ client library for robot code.
 
+The device-side code is a **single statically-linked Rust binary** (~10-20 MB), replacing the previous ~300 MB Python runtime stack. This eliminates first-boot installation delays and allows the ISO to flash without stalling.
+
 ---
 
 ## Features
 
-- **AprilTag detection** — tag36h11 and other families, 3D pose estimation (x/y/z/yaw/pitch/roll, distance in meters)
+- **AprilTag detection** — tag36h11 family, 3D pose estimation (x/y/z/yaw/pitch/roll, distance in meters)
 - **NetworkTables 4** — WPILib-compatible NT4 topics; struct-format robot pose, per-tag data, offset point
 - **Field-centric pose** — upload a `.fmap` field map, get robot position on the field
 - **Robot-to-target calculations** — direct distance, horizontal/vertical angles
@@ -18,7 +20,7 @@
 - **Camera calibration** — checkerboard calibration wizard in the dashboard, auto-applied to 3D calculations
 - **Match Mode** — squeezes maximum performance from hardware (CPU governor, thread priority)
 - **LED light control** — GPIO PWM brightness control, configurable via dashboard
-- **Headless Linux** — auto-starts on boot via systemd services
+- **Headless Linux** — auto-starts on boot via a single systemd service (`xnav-vision.service`)
 - **Flashable ISO** — build script to create a ready-to-flash Raspberry Pi image
 
 ---
@@ -27,17 +29,17 @@
 
 ### Flash the Image
 
-1. Flash `xnav-1.0.0.img.xz` to your CM4 / SD card using [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+1. Flash `xnav-1.1.0.img.xz` to your CM4 / SD card using [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
 2. Insert into Limelight 3 / Raspberry Pi CM4 carrier board
 3. Connect to robot network, power on
 4. Open **http://xnav.local:5800** or **http://10.TE.AM.11:5800**
 
-**No internet connection required.** All Python packages are bundled in the image and pre-installed during the build process. Services start automatically on boot with no first-boot installation delay.
+Services start automatically on boot — no first-boot installation delay.
 
-> **Fallback:** If the image was built without QEMU chroot support, a first-boot script runs once to install packages from the bundled wheel files (offline). This takes 2-5 minutes. You can monitor progress via SSH:
+> **Note:** If the image was built without QEMU/Docker cross-compilation support, a first-boot script compiles the Rust binary directly on the device (takes ~20-40 minutes). You can monitor progress via SSH:
 > ```bash
 > ssh root@xnav.local
-> cat /var/log/xnav-firstboot.log
+> tail -f /var/log/xnav-firstboot.log
 > ```
 
 ### Manual Install (on existing Raspberry Pi OS)
@@ -49,7 +51,7 @@ sudo bash /opt/xnav-src/system/scripts/setup.sh
 
 ### Building Your Own Image
 
-See [Build Instructions](docs/build_offline.md) for detailed steps to build a flashable ISO image. The build process pre-bundles all Python dependencies, so the final image works completely offline.
+See [docs/build_iso.md](docs/build_iso.md) for detailed steps to build a flashable ISO image on an Ubuntu/Debian machine.
 
 ---
 
@@ -57,41 +59,44 @@ See [Build Instructions](docs/build_offline.md) for detailed steps to build a fl
 
 ```
 Limelight3-XNav/
-├── vision_core/          # Python vision service (AprilTags, NT4, pose)
+├── vision_core_rs/       # Rust vision system (binary replaces all Python)
 │   ├── src/
-│   │   ├── main.py              # Entry point / pipeline orchestrator
-│   │   ├── config_manager.py    # Thread-safe config (JSON)
-│   │   ├── camera_manager.py    # V4L2 camera capture
-│   │   ├── apriltag_detector.py # AprilTag detection + PnP pose
-│   │   ├── pose_calculator.py   # Robot/field pose, turret, offset
-│   │   ├── nt_publisher.py      # NT4 publisher + input subscriber
-│   │   ├── fmap_loader.py       # WPILib .fmap parser
-│   │   ├── calibration.py       # Checkerboard calibration
-│   │   └── lights_manager.py    # GPIO LED control
-│   └── requirements.txt
+│   │   ├── main.rs              # Entry point / pipeline orchestrator
+│   │   ├── config.rs            # Thread-safe JSON config manager
+│   │   ├── camera.rs            # V4L2 camera capture
+│   │   ├── detector.rs          # AprilTag detection + solvePnP pose
+│   │   ├── pose.rs              # Robot/field pose, turret, offset math
+│   │   ├── nt_client.rs         # NT4 publisher (WebSocket + MessagePack)
+│   │   ├── web.rs               # Axum HTTP/WebSocket dashboard server
+│   │   ├── calibration.rs       # Checkerboard calibration
+│   │   ├── fmap.rs              # WPILib .fmap parser
+│   │   ├── lights.rs            # GPIO PWM LED control
+│   │   └── thermal.rs           # CPU temperature monitoring
+│   └── Cargo.toml
 │
-├── web_dashboard/        # Flask web configuration portal
-│   ├── app.py                   # Flask + SocketIO server
-│   ├── templates/index.html     # Dashboard UI
-│   └── static/                  # CSS + JavaScript
+├── vision_core/          # Legacy Python code (reference / not deployed)
+├── web_dashboard/        # Dashboard HTML/CSS/JS (embedded into Rust binary)
+│   ├── templates/index.html
+│   └── static/
+│       ├── css/style.css
+│       └── js/app.js
 │
 ├── roborio_library/      # C++ client library for roboRIO
-│   ├── include/XNavLib.h        # Header (API)
-│   ├── src/XNavLib.cpp          # Implementation
-│   ├── CMakeLists.txt
+│   ├── include/XNavLib.h
+│   ├── src/XNavLib.cpp
 │   └── docs/
-│       ├── README.md            # Library usage guide
-│       └── nt_topics.md         # Full NT topic reference
 │
 ├── system/               # System configuration & build tools
 │   ├── config/default_config.json
-│   ├── services/                # systemd service files
+│   ├── services/xnav-vision.service   # Single unified systemd service
 │   └── scripts/
-│       ├── setup.sh             # Installation script
-│       └── build_iso.sh         # ISO image builder
+│       ├── setup.sh             # Manual installation script
+│       ├── build_iso.sh         # ISO image builder
+│       └── verify_iso.sh        # Image validation script
 │
 └── docs/
-    ├── setup.md                 # Installation guide
+    ├── build_iso.md             # ISO build instructions (Ubuntu/Debian)
+    ├── setup.md                 # Manual installation guide
     └── usage.md                 # Usage & robot code guide
 ```
 
@@ -113,6 +118,8 @@ Access at **http://xnav.local:5800**
 | Turret | Enable turret compensation, mount offset |
 | Calibration | Checkerboard calibration wizard |
 | System | Camera mount offsets, match mode, reboot/shutdown |
+
+The dashboard is served by the same `xnav` binary (no separate process/service).
 
 ---
 
@@ -182,10 +189,11 @@ Edit via web dashboard or directly via SSH.
 | Robot pose wrong | Upload correct .fmap, recalibrate camera |
 | NT not connecting | Verify team number, check roboRIO is on same network |
 | Low FPS | Enable match mode, reduce resolution, check CPU temperature |
+| Service not starting | Check `journalctl -u xnav-vision.service` for errors |
 
-For detailed troubleshooting guides, see:
-- [Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
-- [Build Instructions](docs/build_instructions.md) - ISO building and flashing
+For detailed guides, see:
+- [Troubleshooting Guide](docs/troubleshooting.md)
+- [Build Instructions](docs/build_iso.md)
 
 ---
 
@@ -196,3 +204,4 @@ MIT License — see LICENSE file.
 ---
 
 <img width="2752" height="1536" alt="Gemini_Generated_Image_dvjb3odvjb3odvjb" src="https://github.com/user-attachments/assets/e403eae7-d5cc-4b28-92aa-f362fbdd745b" />
+

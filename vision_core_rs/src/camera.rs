@@ -4,7 +4,7 @@
 //! Manages V4L2 camera capture, settings, and frame delivery.
 
 use crate::config::ConfigManager;
-use opencv::{core, imgcodecs, imgproc, videoio};
+use opencv::{core, imgcodecs, imgproc, prelude::*, videoio};
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -134,7 +134,7 @@ impl CameraManager {
         let params = core::Vector::from_slice(&[imgcodecs::IMWRITE_JPEG_QUALITY, quality]);
         let mut buf = core::Vector::<u8>::new();
         imgcodecs::imencode(".jpg", &frame, &mut buf, &params).ok()?;
-        Some(buf.to_vec())
+        Some(buf.iter().collect())
     }
 }
 
@@ -150,10 +150,8 @@ fn open_camera(cfg: &ConfigManager) -> Option<videoio::VideoCapture> {
     let fps = cfg.get_i64(&["camera", "fps"], 90) as f64;
     let idx = cfg.get_i64(&["camera", "camera_index"], 0) as i32;
 
-    let fourcc = videoio::VideoWriter::fourcc(
-        b'M' as i8, b'J' as i8, b'P' as i8, b'G' as i8,
-    )
-    .unwrap_or(0) as f64;
+    let fourcc = videoio::VideoWriter::fourcc('M', 'J', 'P', 'G')
+        .unwrap_or(0) as f64;
 
     // Try device path first, then index.
     let sources: Vec<Box<dyn Fn() -> opencv::Result<videoio::VideoCapture>>> = vec![
@@ -166,12 +164,12 @@ fn open_camera(cfg: &ConfigManager) -> Option<videoio::VideoCapture> {
 
     for open_fn in &sources {
         if let Ok(mut cap) = open_fn() {
-            if videoio::VideoCaptureTrait::is_opened(&cap).unwrap_or(false) {
-                let _ = videoio::VideoCaptureTrait::set(&mut cap, videoio::CAP_PROP_FRAME_WIDTH, width);
-                let _ = videoio::VideoCaptureTrait::set(&mut cap, videoio::CAP_PROP_FRAME_HEIGHT, height);
-                let _ = videoio::VideoCaptureTrait::set(&mut cap, videoio::CAP_PROP_FPS, fps);
-                let _ = videoio::VideoCaptureTrait::set(&mut cap, videoio::CAP_PROP_FOURCC, fourcc);
-                let _ = videoio::VideoCaptureTrait::set(&mut cap, videoio::CAP_PROP_BUFFERSIZE, 1.0);
+            if cap.is_opened().unwrap_or(false) {
+                let _ = cap.set(videoio::CAP_PROP_FRAME_WIDTH, width);
+                let _ = cap.set(videoio::CAP_PROP_FRAME_HEIGHT, height);
+                let _ = cap.set(videoio::CAP_PROP_FPS, fps);
+                let _ = cap.set(videoio::CAP_PROP_FOURCC, fourcc);
+                let _ = cap.set(videoio::CAP_PROP_BUFFERSIZE, 1.0);
                 tracing::info!(
                     "Camera opened: res={}x{} fps={}",
                     width as i32,
@@ -180,7 +178,7 @@ fn open_camera(cfg: &ConfigManager) -> Option<videoio::VideoCapture> {
                 );
                 return Some(cap);
             }
-            let _ = videoio::VideoCaptureTrait::release(&mut cap);
+            let _ = cap.release();
         }
     }
 
@@ -192,23 +190,22 @@ fn open_camera(cfg: &ConfigManager) -> Option<videoio::VideoCapture> {
 fn apply_settings_to_device(cap: &mut videoio::VideoCapture, cfg: &ConfigManager) {
     let auto_exp = cfg.get_bool(&["camera", "auto_exposure"], false);
     // V4L2 auto exposure: 1 = manual, 3 = auto
-    let _ = videoio::VideoCaptureTrait::set(
-        cap,
+    let _ = cap.set(
         videoio::CAP_PROP_AUTO_EXPOSURE,
         if auto_exp { 3.0 } else { 1.0 },
     );
     if !auto_exp {
         let exposure = cfg.get_f64(&["camera", "exposure"], 100.0);
-        let _ = videoio::VideoCaptureTrait::set(cap, videoio::CAP_PROP_EXPOSURE, exposure);
+        let _ = cap.set(videoio::CAP_PROP_EXPOSURE, exposure);
     }
 
     let gain = cfg.get_f64(&["camera", "gain"], 50.0);
     let brightness = cfg.get_f64(&["camera", "brightness"], 50.0);
     let contrast = cfg.get_f64(&["camera", "contrast"], 50.0);
 
-    let _ = videoio::VideoCaptureTrait::set(cap, videoio::CAP_PROP_GAIN, gain);
-    let _ = videoio::VideoCaptureTrait::set(cap, videoio::CAP_PROP_BRIGHTNESS, brightness);
-    let _ = videoio::VideoCaptureTrait::set(cap, videoio::CAP_PROP_CONTRAST, contrast);
+    let _ = cap.set(videoio::CAP_PROP_GAIN, gain);
+    let _ = cap.set(videoio::CAP_PROP_BRIGHTNESS, brightness);
+    let _ = cap.set(videoio::CAP_PROP_CONTRAST, contrast);
     tracing::info!("Camera settings applied");
 }
 
@@ -226,7 +223,7 @@ fn capture_loop(inner: &Inner) {
     while inner.running.load(Ordering::SeqCst) {
         // Ensure camera is open.
         let c = match cap.as_mut() {
-            Some(c) if videoio::VideoCaptureTrait::is_opened(c).unwrap_or(false) => c,
+            Some(c) if c.is_opened().unwrap_or(false) => c,
             _ => {
                 tracing::warn!("Camera not open, retrying in 2s…");
                 thread::sleep(Duration::from_secs(2));
@@ -239,7 +236,7 @@ fn capture_loop(inner: &Inner) {
         };
 
         let mut frame = core::Mat::default();
-        let ok = videoio::VideoCaptureTrait::read(c, &mut frame).unwrap_or(false);
+        let ok = c.read(&mut frame).unwrap_or(false);
         if !ok || frame.empty() {
             tracing::warn!("Failed to capture frame, retrying…");
             thread::sleep(Duration::from_millis(50));
@@ -286,6 +283,6 @@ fn capture_loop(inner: &Inner) {
 
     // Release device on exit.
     if let Some(ref mut c) = cap {
-        let _ = videoio::VideoCaptureTrait::release(c);
+        let _ = c.release();
     }
 }

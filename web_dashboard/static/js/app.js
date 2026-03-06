@@ -4,13 +4,35 @@
 
 "use strict";
 
-// ── Socket.IO ────────────────────────────────────────────────────────────────
-const socket = io();
+// ── Native WebSocket ──────────────────────────────────────────────────────────
+let _ws = null;
 let _matchMode = false;
 
-socket.on("connect", () => console.log("WS connected"));
-socket.on("state_update", updateState);
-socket.on("calibration_result", onCalibrationResult);
+function connectWs() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  _ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+  _ws.onopen = () => console.log("WS connected");
+
+  _ws.onclose = () => {
+    console.log("WS disconnected, reconnecting in 2s…");
+    setTimeout(connectWs, 2000);
+  };
+
+  _ws.onerror = (err) => console.error("WS error:", err);
+
+  _ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === "state_update") updateState(msg.data);
+      else if (msg.type === "calibration_result") onCalibrationResult(msg.data);
+    } catch (e) {
+      console.warn("WS message parse error:", e);
+    }
+  };
+}
+
+connectWs();
 
 // ── Tab navigation ────────────────────────────────────────────────────────────
 document.querySelectorAll("[data-tab]").forEach(link => {
