@@ -229,14 +229,14 @@ mkdir-p /etc/network/interfaces.d
 # ── Copy XNav application files ──────────────────────────────────────────
 copy-in $STAGE/opt/xnav/web_dashboard /opt/xnav/
 copy-in $STAGE/opt/xnav/vision_core_cpp /opt/xnav/
-copy-in $STAGE/opt/xnav/build_on_device.sh /opt/xnav/
+upload $STAGE/opt/xnav/build_on_device.sh /opt/xnav/build_on_device.sh
 
 # ── Copy configuration ──────────────────────────────────────────────────
-copy-in $STAGE/etc/xnav/config.json /etc/xnav/
+upload $STAGE/etc/xnav/config.json /etc/xnav/config.json
 
 # ── Copy systemd service files ───────────────────────────────────────────
-copy-in $STAGE/etc/systemd/system/xnav-vision.service /etc/systemd/system/
-copy-in $STAGE/etc/systemd/system/xnav-firstboot.service /etc/systemd/system/
+upload $STAGE/etc/systemd/system/xnav-vision.service /etc/systemd/system/xnav-vision.service
+upload $STAGE/etc/systemd/system/xnav-firstboot.service /etc/systemd/system/xnav-firstboot.service
 
 # ── Enable services via symlinks ─────────────────────────────────────────
 ln-sf /etc/systemd/system/xnav-vision.service /etc/systemd/system/multi-user.target.wants/xnav-vision.service
@@ -246,10 +246,10 @@ ln-sf /etc/systemd/system/xnav-firstboot.service /etc/systemd/system/multi-user.
 rm-f /etc/systemd/system/multi-user.target.wants/xnav-dashboard.service
 
 # ── Copy network config ─────────────────────────────────────────────────
-copy-in $STAGE/etc/network/interfaces.d/eth0 /etc/network/interfaces.d/
+upload $STAGE/etc/network/interfaces.d/eth0 /etc/network/interfaces.d/eth0
 
 # ── Copy rc.local ────────────────────────────────────────────────────────
-copy-in $STAGE/etc/rc.local /etc/
+upload $STAGE/etc/rc.local /etc/rc.local
 chmod 0755 /etc/rc.local
 
 # ── Set hostname ─────────────────────────────────────────────────────────

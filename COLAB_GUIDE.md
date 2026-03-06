@@ -16,7 +16,7 @@ The Colab-specific build script (`colab_build.sh`) replaces all `losetup`, `moun
 | **Internet** | Required to download the base Raspberry Pi OS image (~500 MB) |
 | **Build time** | ~30–60 minutes depending on network and compression speed |
 
-> **Tip:** For the best experience use a **Colab Pro** runtime to avoid idle disconnects during the build.
+> **Tip:** For the best experience, use a **Colab Pro** runtime to avoid idle disconnects during the build.
 
 ---
 
