@@ -46,7 +46,7 @@ sudo bash /opt/xnav-src/system/scripts/setup.sh
 
 ### Building Your Own Image
 
-See [Build Instructions](docs/build_offline.md) for detailed steps to build a flashable ISO image. The build process pre-bundles all Python dependencies, so the final image works completely offline.
+See [Build Instructions](docs/build_iso.md) for detailed steps to build a flashable ISO image. The C++ vision core binary is compiled during the build — no Python packages or pip required.
 
 ---
 

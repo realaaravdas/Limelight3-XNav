@@ -52,12 +52,18 @@ else
     --python-version 311 \
     --only-binary :all: \
     -r "$REPO_ROOT/vision_core/requirements.txt" || {
-      log "WARN: Could not download all ARM64 binary wheels, retrying without platform restriction..."
+      log "WARN: Could not download all ARM64 binary-only wheels, retrying with source distributions allowed..."
       rm -f "$OUTPUT_DIR"/*.whl 2>/dev/null || true
       pip download \
         -d "$OUTPUT_DIR" \
         --prefer-binary \
-        -r "$REPO_ROOT/vision_core/requirements.txt"
+        --platform manylinux_2_17_aarch64 \
+        --platform linux_aarch64 \
+        --python-version 311 \
+        -r "$REPO_ROOT/vision_core/requirements.txt" || {
+          log "ERROR: Could not download ARM64 wheels. Check internet connection and PyPI availability."
+          exit 1
+        }
     }
 fi
 
