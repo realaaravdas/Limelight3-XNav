@@ -88,9 +88,10 @@ void LightsManager::apply() {
     m_dutyCycle = duty;
 }
 
+// Software PWM period in microseconds (~1 kHz)
+static constexpr int PWM_PERIOD_US = 1000;
+
 void LightsManager::pwmThread() {
-    // Software PWM at ~1kHz (1ms period)
-    const int period_us = 1000;
     while (m_pwmRunning) {
         int duty = m_dutyCycle.load();
         if (!m_line) { std::this_thread::sleep_for(std::chrono::milliseconds(10)); continue; }
@@ -99,13 +100,13 @@ void LightsManager::pwmThread() {
 
         if (duty <= 0) {
             gpiod_line_set_value(line, 0);
-            std::this_thread::sleep_for(std::chrono::microseconds(period_us));
+            std::this_thread::sleep_for(std::chrono::microseconds(PWM_PERIOD_US));
         } else if (duty >= 100) {
             gpiod_line_set_value(line, 1);
-            std::this_thread::sleep_for(std::chrono::microseconds(period_us));
+            std::this_thread::sleep_for(std::chrono::microseconds(PWM_PERIOD_US));
         } else {
-            int on_us  = period_us * duty / 100;
-            int off_us = period_us - on_us;
+            int on_us  = PWM_PERIOD_US * duty / 100;
+            int off_us = PWM_PERIOD_US - on_us;
             gpiod_line_set_value(line, 1);
             std::this_thread::sleep_for(std::chrono::microseconds(on_us));
             gpiod_line_set_value(line, 0);

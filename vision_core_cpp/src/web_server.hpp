@@ -45,20 +45,9 @@ public:
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_state;
     }
-    // Subscribe to state updates (for SSE)
-    // Called from update() under lock; lambda must be fast and non-blocking
-    void addSseListener(std::function<void(const PipelineState&)> fn) {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_listeners.push_back(std::move(fn));
-    }
-    void removeSseListeners() {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_listeners.clear();
-    }
 private:
     mutable std::mutex m_mutex;
     PipelineState m_state;
-    std::vector<std::function<void(const PipelineState&)>> m_listeners;
 };
 
 class WebServer {

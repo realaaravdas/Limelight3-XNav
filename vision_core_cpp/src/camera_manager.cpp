@@ -7,6 +7,10 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/videoio.hpp>
 
+// V4L2 auto-exposure control values (CAP_PROP_AUTO_EXPOSURE)
+static constexpr double V4L2_EXPOSURE_MANUAL = 1.0;
+static constexpr double V4L2_EXPOSURE_AUTO   = 3.0;
+
 CameraManager::CameraManager(ConfigManager& cfg)
     : m_cfg(cfg)
 {
@@ -72,7 +76,7 @@ void CameraManager::applySettings() {
 
     bool auto_exp = cam.value("auto_exposure", false);
     // V4L2: 1 = manual, 3 = auto
-    m_cap.set(cv::CAP_PROP_AUTO_EXPOSURE, auto_exp ? 3.0 : 1.0);
+    m_cap.set(cv::CAP_PROP_AUTO_EXPOSURE, auto_exp ? V4L2_EXPOSURE_AUTO : V4L2_EXPOSURE_MANUAL);
     if (!auto_exp) {
         m_cap.set(cv::CAP_PROP_EXPOSURE, cam.value("exposure", 100));
     }

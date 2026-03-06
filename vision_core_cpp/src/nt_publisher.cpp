@@ -278,7 +278,9 @@ bool NTPublisher::wsHandshake() {
         ssize_t n = ::recv(m_sock, &c, 1, 0);
         if (n <= 0) return false;
         resp += c;
-        if (resp.size() >= 4 && resp.substr(resp.size()-4) == "\r\n\r\n") break;
+        if (resp.size() >= 4 &&
+            resp[resp.size()-4] == '\r' && resp[resp.size()-3] == '\n' &&
+            resp[resp.size()-2] == '\r' && resp[resp.size()-1] == '\n') break;
     }
 
     return resp.find("101") != std::string::npos;
@@ -461,7 +463,7 @@ void NTPublisher::processTextFrame(const std::string& text) {
                 // Server acknowledged a topic; record topicId
                 auto& p = msg["params"];
                 std::string name = p.value("name", "");
-                int id = p.value("id", 0); (void)id;
+                // server-assigned topicId for incoming value updates (future use)
                 // For input topics, store the server-assigned id
                 // (we don't need to track these for publishing)
             } else if (method == "properties") {

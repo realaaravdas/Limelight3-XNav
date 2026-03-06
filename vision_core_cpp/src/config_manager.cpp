@@ -116,12 +116,12 @@ void ConfigManager::save() {
     try {
         fs::path p(m_path);
         fs::create_directories(p.parent_path());
-        std::string tmp = m_path + ".tmp";
+        fs::path tmp_path = p.parent_path() / (p.filename().string() + ".tmp");
         {
-            std::ofstream f(tmp);
+            std::ofstream f(tmp_path);
             f << m_config.dump(2);
         }
-        fs::rename(tmp, m_path);
+        fs::rename(tmp_path, p);
     } catch (const std::exception& e) {
         syslog(LOG_ERR, "Failed to save config: %s", e.what());
     }
