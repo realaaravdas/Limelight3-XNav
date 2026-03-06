@@ -178,6 +178,9 @@ if [ -n "$QEMU_BINARY" ]; then
   log "Pre-installing Python packages in ARM64 chroot (no first-boot install needed)..."
   cp "$QEMU_BINARY" "$ROOT/usr/bin/qemu-aarch64-static"
 
+  # Provide DNS resolution so apt-get can download packages inside the chroot
+  cp /etc/resolv.conf "$ROOT/etc/resolv.conf" 2>/dev/null || true
+
   # Mount essential filesystems for chroot
   mount --bind /proc    "$ROOT/proc"    2>/dev/null || true
   mount --bind /sys     "$ROOT/sys"     2>/dev/null || true
@@ -185,11 +188,21 @@ if [ -n "$QEMU_BINARY" ]; then
   mount --bind /dev/pts "$ROOT/dev/pts" 2>/dev/null || true
 
   chroot "$ROOT" /bin/bash -ec '
-    python3 -m venv /opt/xnav/venv
+    export DEBIAN_FRONTEND=noninteractive
+    # Install large packages via apt to avoid bundling their wheels in the image.
+    # python3-opencv (~4.6 from RPi OS Bookworm) covers all cv2 usage in the codebase.
+    apt-get update -qq
+    apt-get install -y --no-install-recommends python3-opencv python3-numpy python3-rpi.gpio
+    # Remove apt cache to reclaim space (package lists + downloaded .deb files).
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+    # Create venv with access to system-installed packages (cv2, numpy, RPi.GPIO).
+    # Only the smaller pip-only packages are then installed from bundled wheels.
+    python3 -m venv --system-site-packages /opt/xnav/venv
     /opt/xnav/venv/bin/pip install --upgrade pip -q
     /opt/xnav/venv/bin/pip install \
       --no-index --find-links=/opt/xnav/wheels \
-      -r /opt/xnav/vision_core/requirements.txt -q
+      -r /opt/xnav/vision_core/requirements-pip.txt -q
   ' && CHROOT_INSTALLED=true || {
     log "WARN: QEMU chroot install failed (check ARM64 wheel compatibility), will use first-boot install"
   }
@@ -199,6 +212,9 @@ if [ -n "$QEMU_BINARY" ]; then
     umount "$mnt" 2>/dev/null || true
   done
   rm -f "$ROOT/usr/bin/qemu-aarch64-static"
+  # Remove the host resolv.conf that was copied in for apt access; it must not
+  # persist into the final image (the device manages its own DNS at runtime).
+  rm -f "$ROOT/etc/resolv.conf"
 
   if $CHROOT_INSTALLED; then
     log "Python packages pre-installed - services will start immediately on boot"
@@ -208,6 +224,11 @@ if [ -n "$QEMU_BINARY" ]; then
       -e "/ExecStartPre=\/bin\/sleep/d" \
       "$ROOT/etc/systemd/system/xnav-vision.service" \
       "$ROOT/etc/systemd/system/xnav-dashboard.service"
+    # Remove bundled wheel cache — all packages are pre-installed in the venv.
+    # opencv, numpy, and RPi.GPIO came from apt; pip-only packages from wheels.
+    # The venv is fully functional offline; removing wheels reclaims ~150-200 MiB.
+    rm -rf "$ROOT/opt/xnav/wheels"
+    log "Wheel cache removed: all packages pre-installed (offline boot still works)"
   fi
 else
   log "qemu-aarch64-static not available - packages will be installed from bundled wheels on first boot"
