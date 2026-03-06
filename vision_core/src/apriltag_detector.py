@@ -12,11 +12,15 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 try:
-    import pupil_apriltags as apriltag
+    import dt_apriltags as apriltag
     _APRILTAG_AVAILABLE = True
 except ImportError:
-    _APRILTAG_AVAILABLE = False
-    apriltag = None
+    try:
+        import pupil_apriltags as apriltag
+        _APRILTAG_AVAILABLE = True
+    except ImportError:
+        _APRILTAG_AVAILABLE = False
+        apriltag = None
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +123,7 @@ class AprilTagDetector:
 
     def _init_detector(self):
         if not _APRILTAG_AVAILABLE:
-            logger.error("pupil-apriltags not installed. AprilTag detection unavailable.")
+            logger.error("AprilTag library (dt-apriltags or pupil-apriltags) not installed. AprilTag detection unavailable.")
             return
 
         at_cfg = self._cfg.get("apriltag") or {}

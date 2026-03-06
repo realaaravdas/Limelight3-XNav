@@ -1,4 +1,10 @@
-# Building XNav ISO for Offline Deployment
+> **⚠️ This document describes the old Python-based build process (v1.0) and is no longer current.**
+> The ISO build has been rewritten in C++ (v1.1+) and no longer uses Python, pip, or wheels.
+> See **[build_iso.md](build_iso.md)** for the current build instructions.
+
+---
+
+# Building XNav ISO for Offline Deployment (Legacy — v1.0 Python build)
 
 XNav is designed to work offline on the Limelight device. The ISO build process includes all Python dependencies pre-bundled, so no internet connection is required during first-boot setup.
 
