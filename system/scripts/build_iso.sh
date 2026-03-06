@@ -82,8 +82,8 @@ ROOT_OFFSET=$(parted "$OUTPUT_IMG" -s unit B print | awk '/^ 2/{print $2}' | tr 
 log "Boot partition offset: $BOOT_OFFSET"
 log "Root partition offset: $ROOT_OFFSET"
 
-# Increase image size by 1GB for XNav (space for wheels and code files)
-truncate -s +1G "$OUTPUT_IMG"
+# Increase image size by 2GB for XNav (space for apt packages, wheels and code files)
+truncate -s +2G "$OUTPUT_IMG"
 parted "$OUTPUT_IMG" -s resizepart 2 100%
 
 # Mount partitions
@@ -125,6 +125,8 @@ else
     --dest "$TEMP_VENV/wheels" \
     --prefer-binary \
     --platform manylinux_2_17_aarch64 \
+    --platform manylinux_2_28_aarch64 \
+    --platform manylinux_2_31_aarch64 \
     --platform linux_aarch64 \
     --python-version 311 \
     --only-binary :all: || {
@@ -202,6 +204,10 @@ if [ -n "$QEMU_BINARY" ]; then
     /opt/xnav/venv/bin/pip install --upgrade pip -q
     /opt/xnav/venv/bin/pip install \
       --no-index --find-links=/opt/xnav/wheels \
+      -r /opt/xnav/vision_core/requirements-pip.txt -q || \
+    /opt/xnav/venv/bin/pip install \
+      --find-links=/opt/xnav/wheels \
+      --prefer-binary \
       -r /opt/xnav/vision_core/requirements-pip.txt -q
   ' && CHROOT_INSTALLED=true || {
     log "WARN: QEMU chroot install failed (check ARM64 wheel compatibility), will use first-boot install"

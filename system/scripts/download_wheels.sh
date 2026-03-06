@@ -48,6 +48,8 @@ else
     -d "$OUTPUT_DIR" \
     --prefer-binary \
     --platform manylinux_2_17_aarch64 \
+    --platform manylinux_2_28_aarch64 \
+    --platform manylinux_2_31_aarch64 \
     --platform linux_aarch64 \
     --python-version 311 \
     --only-binary :all: \
