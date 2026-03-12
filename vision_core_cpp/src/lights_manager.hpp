@@ -39,7 +39,8 @@ private:
 
     // libgpiod opaque handles (void* to avoid header inclusion)
     void* m_chip{nullptr};
-    void* m_line{nullptr};
+    void* m_request{nullptr};  // gpiod_line_request* (libgpiod v2)
+    unsigned int m_gpioPin{18};
     bool  m_gpioAvailable{false};
 
     // Software PWM
