@@ -2,9 +2,9 @@
 
 <img width="2752" height="1536" alt="Gemini_Generated_Image_8y01dk8y01dk8y01" src="https://github.com/user-attachments/assets/9c0705c2-9a6c-4031-8005-5ab7777a07a5" />
 
-**XNav** is a custom, headless AprilTag vision system for FRC robots, designed to run on Raspberry Pi Compute Module 4 hardware (as used in the Limelight 3). It communicates with the roboRIO via WPILib NetworkTables 4, features a web configuration dashboard, and includes a C++ client library for robot code.
+**XNav** is a custom, headless AprilTag vision system for FRC robots, designed to run on **Raspberry Pi Compute Module 3 or 4** hardware (as used in the Limelight 3). It communicates with the roboRIO via WPILib NetworkTables 4, features a web configuration dashboard, and includes a C++ client library for robot code.
 
-The vision core is written in **C++** — a single ~2 MB binary with no Python dependencies, delivering a compact flashable image that fits comfortably on Limelight 3 eMMC.
+The vision core is written in **C++** — a single ~2 MB binary with no Python dependencies, delivering a compact flashable image that fits comfortably on Limelight 3's 8 GB eMMC.
 
 ---
 
@@ -30,12 +30,13 @@ The vision core is written in **C++** — a single ~2 MB binary with no Python d
 
 ### Flash the Image
 
-1. Flash `xnav-1.1.0.img.xz` to your CM4 / SD card using [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
-2. Insert into Limelight 3 / Raspberry Pi CM4 carrier board
-3. Connect to robot network, power on
-4. Open **http://xnav.local:5800** or **http://10.TE.AM.11:5800**
+1. Flash `xnav-1.2.0.img.xz` to your CM3/CM4 eMMC using [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+2. Insert into Limelight 3 / Raspberry Pi CM3 or CM4 carrier board
+3. Connect an **Ethernet cable** (required — no Wi-Fi; uses Realtek RTL8153B USB ethernet)
+4. Power on — on first boot, ethernet is configured automatically
+5. Open **http://xnav.local:5800** or SSH in: `ssh pi@xnav.local`
 
-**No internet connection required on the device.** The C++ binary is pre-compiled during the ISO build. Services start automatically within ~30 seconds of boot.
+**No internet connection required on the device after first boot.** The C++ binary is pre-compiled in the ISO. The ethernet firmware (`firmware-realtek`) is baked in — the RTL8153B adapter works immediately.
 
 ### Manual Install (on existing Raspberry Pi OS)
 
@@ -85,12 +86,16 @@ Limelight3-XNav/
 │   └── CMakeLists.txt
 │
 ├── system/               # System configuration & build tools
-│   ├── config/default_config.json
+│   ├── config/
+│   │   ├── default_config.json
+│   │   └── 70-limelight-ethernet.rules  # udev: RTL8153B USB ethernet -> eth0
 │   ├── services/
-│   │   └── xnav-vision.service  # Single systemd service (C++ binary)
+│   │   ├── xnav-vision.service      # Main systemd service (C++ binary)
+│   │   └── xnav-firstboot.service   # One-shot first-boot ethernet setup
 │   └── scripts/
 │       ├── setup.sh             # Installation script
-│       └── build_iso.sh         # ISO image builder (C++ edition)
+│       ├── build_iso.sh         # ISO image builder (v1.2.0 — fast, ethernet-ready)
+│       └── verify_iso.sh        # ISO verification script
 │
 └── docs/
     ├── build_iso.md             # ISO build guide (WSL-compatible)
@@ -180,6 +185,7 @@ Edit via web dashboard or directly via SSH.
 | Problem | Solution |
 |---------|----------|
 | Dashboard not accessible | Check IP address, ensure port 5800 is not blocked |
+| Ethernet not working | Ensure `firmware-realtek` is installed (`dpkg -l firmware-realtek`); check `systemctl status xnav-firstboot` |
 | No camera feed | Verify camera is connected, check `/dev/video0` exists |
 | Tags not detecting | Check lighting, calibrate camera, verify tag family/size |
 | Robot pose wrong | Upload correct .fmap, recalibrate camera |

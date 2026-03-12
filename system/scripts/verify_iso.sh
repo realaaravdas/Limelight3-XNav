@@ -37,7 +37,7 @@ mkdir -p "$WORK_DIR"
 trap "umount '$WORK_DIR/mnt/boot' 2>/dev/null; umount '$WORK_DIR/mnt/root' 2>/dev/null; losetup -d \"\$LOOP\" 2>/dev/null; rm -rf '$WORK_DIR'" EXIT
 
 log "Decompressing image..."
-xz -d -k -T0 "$IMG_FILE" -o "$WORK_DIR/xnav.img"
+xz -d -k -T0 -c "$IMG_FILE" > "$WORK_DIR/xnav.img"
 check "Decompressed image"
 
 log "Mounting partitions..."

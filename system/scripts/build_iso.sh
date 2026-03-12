@@ -334,9 +334,13 @@ sleep 1
 ip link set eth0 up 2>/dev/null || true
 sleep 3
 
-dhcpcd eth0 --waitip 2>/dev/null \
-  || dhclient eth0 2>/dev/null \
-  || true
+# Request a DHCP lease.  Raspberry Pi OS Bookworm ships dhcpcd by default;
+# fall back to dhclient on systems where only it is available.
+if command -v dhcpcd >/dev/null 2>&1; then
+  dhcpcd eth0 --waitip 2>/dev/null || true
+elif command -v dhclient >/dev/null 2>&1; then
+  dhclient eth0 2>/dev/null || true
+fi
 sleep 5
 
 IP=$(ip addr show eth0 2>/dev/null | awk '/inet /{print $2; exit}')
@@ -419,10 +423,11 @@ log "Root filesystem after shrink: $(( FS_BYTES / 1024 / 1024 )) MiB"
 losetup -d "$LOOP"
 _CLEANUP_DONE=true  # Prevent double-cleanup in EXIT trap
 
-# Trim image file: partition end + 64 MiB padding
+# Trim image file: partition end + 64 MiB padding (room for partition table overhead)
 NEW_END=$(( ROOT_OFFSET + FS_BYTES + 64 * 1024 * 1024 ))
 parted "$OUTPUT_IMG" -s resizepart 2 "${NEW_END}B"
-NEW_SIZE=$(( NEW_END + 4 * 1024 * 1024 ))
+# Add a small tail beyond the last partition (required by some tools)
+NEW_SIZE=$(( NEW_END + 1024 * 1024 ))
 truncate -s "$NEW_SIZE" "$OUTPUT_IMG"
 log "Uncompressed image: $(( NEW_SIZE / 1024 / 1024 )) MiB"
 
