@@ -6,11 +6,15 @@ This guide explains how to build a flashable Raspberry Pi OS image with XNav pre
 
 ### Prerequisites
 
-- Linux system with root/sudo access
-- At least 8GB free disk space
-- Internet connection
-- `xz` utility (for compression)
-- `curl` or `wget`
+- Ubuntu 22.04 LTS (recommended) or Ubuntu 20.04 / Debian 11+
+- At least 4 GB free disk space
+- Internet connection (to download base image ~500 MB)
+- `xz`, `parted`, `e2fsprogs`, `curl` installed (see below)
+
+```bash
+sudo apt-get update
+sudo apt-get install -y parted e2fsprogs xz-utils curl git util-linux
+```
 
 ### Quick Build
 
@@ -20,21 +24,24 @@ sudo bash system/scripts/build_iso.sh
 ```
 
 The build process will:
-1. Download Raspberry Pi OS Lite (64-bit) base image
-2. Mount and expand the image
-3. Inject XNav files and configuration
-4. Set up first-boot installation script
-5. Compress the final image
+1. Download Raspberry Pi OS Lite (64-bit) base image (~500 MB)
+2. Mount and expand the image by 512 MB (XNav source files only — no pre-bundled packages)
+3. Inject XNav files, configuration, and systemd services
+4. Inject `xnav-firstboot.service` (runs once on device to install Python packages)
+5. Shrink and compress the final image
 
-**Output:** `xnav-1.0.0.img.xz`
+**Output:** `xnav-1.1.0.img.xz`
 
-### Build Time
+### Build Time (Ubuntu 22.04)
 
-- Download base image: ~500 MB (varies by connection)
-- Build process: 5-10 minutes
-- Compression: 10-20 minutes
+| Step | Duration |
+|------|----------|
+| Download base image | 1–3 min (network dependent) |
+| Image preparation & injection | ~1 min |
+| Compression (`xz -3`) | ~2–4 min |
+| **Total** | **~5–10 min** |
 
-Total: ~15-40 minutes
+> **Note:** The old build used a QEMU ARM64 chroot (10–30 min) and downloaded Python wheels (~200 MB). Both are eliminated — Python packages are installed on the device at first boot instead.
 
 ### Detailed Build Process
 
@@ -48,7 +55,7 @@ https://downloads.raspberrypi.org/raspios_lite_arm64_latest
 #### 2. Image Preparation
 
 - Decompress the base image
-- Expand by 2GB for XNav packages
+- Expand by 512 MB for XNav source files
 - Mount boot and root partitions
 
 #### 3. File Injection
@@ -61,53 +68,58 @@ The following are copied to the image:
 
 **Configuration:**
 - `/etc/xnav/config.json` - Default configuration
-- `/etc/xnav/first_boot.sh` - First-boot setup script
+- `/etc/xnav/first_boot.sh` - First-boot setup script (runs via systemd)
 - `/etc/hostname` - Set to "xnav"
 - `/etc/hosts` - Hostname mapping
 - `/boot/config.txt` - Boot configuration (camera, GPU memory)
 - `/etc/network/interfaces.d/eth0` - Network configuration (DHCP)
+- `/etc/udev/rules.d/70-limelight-ethernet.rules` - Names Realtek USB adapter "eth0"
+- `/etc/modules-load.d/usb-ethernet.conf` - Loads r8152 module on boot
 
 **Systemd Services:**
-- `/etc/systemd/system/xnav-vision.service` - Vision pipeline service
-- `/etc/systemd/system/xnav-dashboard.service` - Web dashboard service
-- `/etc/systemd/system/multi-user.target.wants/` - Service symlinks
+- `/etc/systemd/system/xnav-firstboot.service` - One-shot first-boot installer (auto-enabled)
+- `/etc/systemd/system/xnav-vision.service` - Vision pipeline service (auto-enabled)
+- `/etc/systemd/system/xnav-dashboard.service` - Web dashboard service (auto-enabled)
 
-#### 4. First-Boot Setup
+#### 4. First-Boot Setup (on device)
 
-On first boot, `/etc/xnav/first_boot.sh` (run via `/etc/rc.local`) will:
+On first power-on, `xnav-firstboot.service` (a systemd oneshot unit) automatically:
 
-1. Create Python virtual environment at `/opt/xnav/venv/`
-2. Install Python dependencies from `requirements.txt`
-3. Update service files to use venv Python interpreter
-4. Reload systemd daemon
-5. Enable and start services
-6. Log progress to `/var/log/xnav-firstboot.log`
-7. Remove itself to prevent re-running
+1. Brings up the RTL8153 USB ethernet (`eth0`) via DHCP
+2. Waits up to 60 s for internet connectivity
+3. Installs system packages via apt: `firmware-realtek`, `python3-opencv`, `python3-numpy`, `python3-rpi.gpio`, `python3-venv`, `python3-pip`
+4. Creates a Python venv at `/opt/xnav/venv/` with `--system-site-packages`
+5. pip-installs `dt-apriltags`, `pyntcore`, `flask`, `flask-socketio`
+6. Caches web dashboard vendor files for offline use
+7. Logs progress to `/var/log/xnav-firstboot.log`
 
-**Important:** The first-boot process takes 5-10 minutes, depending on:
-- Internet connection speed (for pip downloads)
-- Raspberry Pi CM4 model
-- Network performance
+**Important:** The first boot requires internet. Connect to a router with internet access. After first boot the device works fully offline on the robot intranet.
 
-During this time, the services may restart multiple times as dependencies are installed.
+On every subsequent boot, systemd detects `/opt/xnav/venv` exists and skips `xnav-firstboot.service` instantly, so the XNav services start right away.
+
+**First-boot time:** ~3–5 minutes
 
 ### Service Architecture
 
-XNav runs two systemd services:
+XNav runs three systemd services:
+
+#### xnav-firstboot.service
+- **Purpose:** One-time internet install of Python packages (runs only when `/opt/xnav/venv` is absent)
+- **Type:** oneshot (runs to completion then exits)
+- **Must complete before:** xnav-vision and xnav-dashboard
 
 #### xnav-vision.service
 - **Purpose:** Core vision pipeline (AprilTag detection, NT4 publishing)
 - **Port:** None (internal)
-- **Dependencies:** Network
+- **Dependencies:** Network + xnav-firstboot
 - **Priority:** High (CPU cores 0-3, nice=-10, realtime I/O)
 - **Environment:** `XNAV_DISABLE_DASHBOARD=1` (to prevent duplicate dashboard)
 
 #### xnav-dashboard.service
 - **Purpose:** Web configuration interface
 - **Port:** 5800 (HTTP)
-- **Dependencies:** Network + vision service
+- **Dependencies:** Network + xnav-firstboot + vision service
 - **Priority:** Normal
-- **Environment:** `XNAV_CONFIG=/etc/xnav/config.json`
 
 ### Troubleshooting Build Issues
 
@@ -129,15 +141,6 @@ Ensure you're running with sudo:
 sudo bash system/scripts/build_iso.sh
 ```
 
-#### Image Too Large
-
-The script expands the image by 2GB. If you need more space:
-```bash
-# Edit build_iso.sh line 86
-# Change: truncate -s +2G "$OUTPUT_IMG"
-# To:      truncate -s +4G "$OUTPUT_IMG"
-```
-
 #### Build Fails During Compression
 
 If you run out of disk space during compression:
@@ -146,10 +149,8 @@ If you run out of disk space during compression:
 cd /tmp
 rm -rf xnav-build
 
-# Build again with less compression
-# Edit build_iso.sh line 165
-# Change: xz -v -T0 -9 "$OUTPUT_IMG"
-# To:      xz -v -T0 -6 "$OUTPUT_IMG"
+# Build again (compression is already at level 3, the fastest useful level)
+sudo bash system/scripts/build_iso.sh
 ```
 
 ## Flashing the Image
@@ -158,14 +159,14 @@ rm -rf xnav-build
 
 1. Download [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
 2. Open Raspberry Pi Imager
-3. Click "Choose OS" → "Use custom image" → select `xnav-1.0.0.img.xz`
+3. Click "Choose OS" → "Use custom image" → select `xnav-1.1.0.img.xz`
 4. Click "Choose Storage" → select your CM4 eMMC or SD card
 5. Click "Write" and wait for completion
 
 ### Using balenaEtcher
 
 1. Download [balenaEtcher](https://etcher.balena.io/)
-2. Click "Flash from file" → select `xnav-1.0.0.img.xz`
+2. Click "Flash from file" → select `xnav-1.1.0.img.xz`
 3. Click "Select target" → choose your CM4 eMMC / SD card
 4. Click "Flash!" and wait for completion
 
@@ -173,7 +174,7 @@ rm -rf xnav-build
 
 ```bash
 # Decompress and flash
-xzcat xnav-1.0.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+xzcat xnav-1.1.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
 sync
 
 # Replace /dev/sdX with your device (e.g., /dev/sda, /dev/mmcblk0)
@@ -190,40 +191,47 @@ diskutil list
 diskutil unmountDisk /dev/diskN
 
 # Decompress and flash
-xzcat xnav-1.0.0.img.xz | sudo dd of=/dev/rdiskN bs=4m status=progress
+xzcat xnav-1.1.0.img.xz | sudo dd of=/dev/rdiskN bs=4m status=progress
 sync
 ```
 
 ## First Boot
 
+> **Internet required on first boot.** Connect the device to a router with internet access. After first boot the device works fully offline on the robot intranet.
+
 After flashing and powering on the device:
 
-1. **Wait 5-10 minutes** for first-boot setup to complete
-2. Check status via SSH (default hostname: `xnav.local`):
+1. **Connect to a router with internet access** via Ethernet
+2. Apply power — `xnav-firstboot.service` starts automatically
+3. **Wait 3–5 minutes** for first-boot setup to complete
+4. Check status via SSH:
    ```bash
-   ssh root@xnav.local
-   # Check first-boot log
-   cat /var/log/xnav-firstboot.log
+   ssh pi@xnav.local
+   sudo journalctl -u xnav-firstboot.service -f
+   # or
+   sudo tail -f /var/log/xnav-firstboot.log
    ```
-3. Access web dashboard: `http://xnav.local:5800`
-4. Configure your team number and other settings
+5. Access web dashboard: `http://xnav.local:5800`
+6. Configure your team number and other settings
+
+On every subsequent boot (including on the robot's intranet) the device starts immediately — the firstboot service is skipped automatically.
 
 ### First-Boot Status Indicators
 
 **Working correctly:**
 - Device responds to ping
-- First-boot script runs (check `/var/log/xnav-firstboot.log`)
-- Services start after ~5-10 minutes
+- `xnav-firstboot.service` shows `active (exited)` in journalctl
+- Services start after ~3–5 minutes
 - Dashboard accessible at port 5800
 
 **Issues:**
-- Services fail to start: Check `/var/log/xnav-firstboot.log`
+- Services fail to start: Check `sudo journalctl -u xnav-firstboot.service`
+- "No internet connectivity" error: Ensure Ethernet is connected to a www router
 - Dashboard not accessible: See [Troubleshooting Guide](troubleshooting.md)
-- No network connection: Check ethernet cable and robot network
 
 ## Version Information
 
-Current XNav version: `1.0.0`
+Current XNav version: `1.1.0`
 
 To check installed version (after flashing):
 ```bash
@@ -239,7 +247,7 @@ If you have XNav already installed and want to update:
 
 ```bash
 # SSH into device
-ssh root@xnav.local
+ssh pi@xnav.local
 
 # Pull latest changes
 cd /opt/xnav-src
@@ -270,24 +278,24 @@ Common customizations:
 - Network configuration
 - AprilTag parameters
 
-### Adding Additional Packages
+### Adding Additional pip Packages
 
-Edit the first-boot script in `build_iso.sh`:
+Edit `vision_core/requirements-pip.txt` before building. These packages are pip-installed on first boot:
 
-```bash
-# Find the pip install line
-pip install -r /opt/xnav/vision_core/requirements.txt -q
-
-# Add custom packages
-pip install <package-name> -q
+```
+dt-apriltags>=3.0.0
+pyntcore>=2024.0.0
+flask>=3.0.0
+flask-socketio>=5.3.0
+my-extra-package>=1.0.0   # add here
 ```
 
 ### Changing Hostname
 
-Edit the build script:
+Edit the build script near the hostname section:
 
 ```bash
-# Find line 144
+# In system/scripts/build_iso.sh, find:
 echo "xnav" > "$ROOT/etc/hostname"
 
 # Change to your preferred hostname

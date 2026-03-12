@@ -1,6 +1,6 @@
 # Building the XNav ISO
 
-This guide explains how to build a flashable XNav `.img.xz` image on a standard Linux computer and flash it to your Limelight 3 hardware using balenaEtcher.
+This guide explains how to build a flashable XNav `.img.xz` image on a standard Linux computer (Ubuntu recommended) and flash it to your Limelight 3 hardware using balenaEtcher.
 
 ---
 
@@ -8,22 +8,22 @@ This guide explains how to build a flashable XNav `.img.xz` image on a standard 
 
 The XNav build script downloads a base Raspberry Pi OS Lite (64-bit) image, mounts it using a loop device, injects all XNav files and services, and compresses the result into a ready-to-flash `.img.xz` file. You run this on any modern Linux PC — no Raspberry Pi hardware is needed for the build step.
 
+Python packages are **not** bundled in the image. Instead, `xnav-firstboot.service` runs automatically on the device's first boot, downloads and installs everything from the internet, then disables itself. On every subsequent boot the device works fully offline (robot intranet).
+
 ---
 
 ## Build Machine Requirements
 
 | Requirement | Notes |
 |-------------|-------|
-| **OS** | Linux (Ubuntu 20.04 / 22.04 recommended; Debian 11+ also works) |
+| **OS** | Ubuntu 22.04 LTS (recommended); Ubuntu 20.04 or Debian 11+ also work |
 | **Architecture** | x86-64 (amd64) |
-| **Disk space** | ≥ 8 GB free in `/tmp` |
+| **Disk space** | ≥ 4 GB free in `/tmp` |
 | **RAM** | 2 GB minimum |
 | **Root / sudo** | Required — the script mounts loop devices |
 | **Internet** | Required to download the base RPi OS image (~500 MB) |
 
-### Required packages
-
-Install the following before running the build:
+### Required packages (Ubuntu)
 
 ```bash
 sudo apt-get update
@@ -35,8 +35,6 @@ sudo apt-get install -y \
     git \
     util-linux
 ```
-
-> **Note:** On Fedora/RHEL use `dnf install` with the same package names (the `e2fsprogs` package provides `e2fsck` and `resize2fs`).
 
 ---
 
@@ -58,40 +56,55 @@ sudo bash system/scripts/build_iso.sh
 The script will:
 1. Download the official Raspberry Pi OS Lite 64-bit image (~500 MB) to `/tmp/xnav-build/`
 2. Decompress and copy the base image
-3. Expand the image by 2 GB to fit XNav files
+3. Expand the image by **512 MB** (just enough for XNav source files — no pre-bundled packages)
 4. Mount the image partitions via a loop device
 5. Inject all XNav application files, systemd services, and default configuration
-6. Set the hostname to `xnav`
-7. Add camera and boot configuration
-8. Unmount, then compress the final image with `xz -9` (may take 5–10 minutes)
+6. Inject the `xnav-firstboot.service` that installs Python packages on first device boot
+7. Set the hostname to `xnav`
+8. Add camera and boot configuration
+9. Shrink and compress the final image with `xz -3` (fast compression)
 
 ### Expected output
 
 ```
-[BUILD] XNav ISO Builder v1.0.0
+[BUILD] XNav ISO Builder v1.1.0
 [BUILD] Repo: /opt/xnav-src
 [BUILD] Using image injection method...
 [BUILD] Downloading base Raspberry Pi OS Lite (64-bit)...
 ...
 [BUILD] Injecting XNav files...
+[BUILD] Injecting xnav-firstboot.service...
 [BUILD] Unmounting...
+[BUILD] Shrinking root filesystem to minimum size...
+[BUILD] Image size after shrink: ~1900 MiB
 [BUILD] Compressing image...
 [BUILD] ═══════════════════════════════════════════
-[BUILD]   Build complete: xnav-1.0.0.img.xz
+[BUILD]   Build complete: xnav-1.1.0.img.xz
 [BUILD]   Flash with: rpi-imager or
-[BUILD]     xzcat xnav-1.0.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+[BUILD]     xzcat xnav-1.1.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
 [BUILD] ═══════════════════════════════════════════
 ```
 
+### Build time (Ubuntu 22.04, typical laptop)
+
+| Step | Duration |
+|------|----------|
+| Download base image (~500 MB) | 1–3 min (network dependent) |
+| Image preparation & file injection | ~1 min |
+| Compression (`xz -3`) | ~2–4 min |
+| **Total** | **~5–10 min** |
+
+> **Why is it faster?** Previous builds ran a QEMU ARM64 chroot (apt + pip install) and downloaded ~200 MB of Python wheels on the build machine — these steps are eliminated. Python packages are now installed on the device on first boot.
+
 The finished image is written to:
 ```
-/tmp/xnav-build/xnav-1.0.0.img.xz
+/tmp/xnav-build/xnav-1.1.0.img.xz
 ```
 
 Copy it somewhere convenient before flashing:
 
 ```bash
-cp /tmp/xnav-build/xnav-1.0.0.img.xz ~/Desktop/
+cp /tmp/xnav-build/xnav-1.1.0.img.xz ~/Desktop/
 ```
 
 ---
@@ -129,7 +142,7 @@ The Limelight 3 uses a Raspberry Pi Compute Module 4 (CM4) with eMMC storage. To
 ### 3c — Flash the Image
 
 1. Open **balenaEtcher**.
-2. Click **Flash from file** → select `xnav-1.0.0.img.xz`.
+2. Click **Flash from file** → select `xnav-1.1.0.img.xz`.
    - balenaEtcher can flash `.xz` compressed images directly — no need to decompress first.
 3. Click **Select target** → choose the Limelight 3 / CM4 eMMC drive.
    - **Double-check you have the correct drive** — all data on the target will be erased.
@@ -146,14 +159,28 @@ The Limelight 3 uses a Raspberry Pi Compute Module 4 (CM4) with eMMC storage. To
 
 ## Step 4 — First Boot
 
-1. Connect the Limelight 3 to your robot network via Ethernet.
+> **Important:** On first boot the device must be connected to a router/switch that has internet access (www). It will automatically download and install all Python packages (~300 MB). After that it works fully offline on your robot's intranet — no internet needed.
+
+1. Connect the Limelight 3 to a router **with internet access** via Ethernet.
 2. Apply power.
-3. Wait **2–3 minutes** for the first-boot setup to complete (Python packages are installed on first boot).
-4. Open a browser and navigate to:
+3. Wait **3–5 minutes** for `xnav-firstboot.service` to complete.
+   - The service installs `firmware-realtek`, `python3-opencv`, `dt-apriltags`, `pyntcore`, `flask`, and `flask-socketio`.
+   - Progress is logged to `/var/log/xnav-firstboot.log`.
+4. On every subsequent boot (including on the robot's intranet) the device starts immediately — no install step.
+5. Open a browser and navigate to:
    - `http://xnav.local:5800` (mDNS)
-   - or `http://10.TE.AM.11:5800` (replace `TE.AM` with your team number, e.g. `10.12.34.11:5800`)
+   - or `http://<device-ip>:5800`
 
 You should see the XNav web dashboard.
+
+### Monitoring first-boot progress via SSH
+
+```bash
+ssh pi@xnav.local
+sudo journalctl -u xnav-firstboot.service -f
+# or
+sudo tail -f /var/log/xnav-firstboot.log
+```
 
 ---
 
@@ -167,7 +194,8 @@ You should see the XNav web dashboard.
 | `resize2fs` not found | Install: `sudo apt-get install e2fsprogs` |
 | CM4 not detected as USB drive | Ensure the BOOT jumper is bridged and power was cycled **after** connecting USB |
 | balenaEtcher shows drive is locked | Make sure no partition on the drive is mounted: `sudo umount /dev/sdX*` |
-| Dashboard not reachable after flashing | Wait the full 3 minutes; check that the Ethernet cable is connected; try the IP address directly |
+| Dashboard not reachable after first boot | First boot needs internet — ensure the Ethernet is connected to a www router; check `sudo journalctl -u xnav-firstboot.service` |
+| First-boot fails "No internet connectivity" | Device couldn't reach 8.8.8.8 within 60 s; connect to a router with internet and reboot |
 
 ---
 
@@ -176,7 +204,7 @@ You should see the XNav web dashboard.
 If you prefer not to use balenaEtcher:
 
 ```bash
-xzcat /tmp/xnav-build/xnav-1.0.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
+xzcat /tmp/xnav-build/xnav-1.1.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
 Replace `/dev/sdX` with the correct target device (e.g. `/dev/sdb`). **Verify the device name carefully.**
@@ -186,6 +214,6 @@ Replace `/dev/sdX` with the correct target device (e.g. `/dev/sdb`). **Verify th
 ## Alternative: Flash with Raspberry Pi Imager
 
 1. Open [Raspberry Pi Imager](https://www.raspberrypi.com/software/).
-2. Under **Operating System** → choose **Use custom** → select `xnav-1.0.0.img.xz`.
+2. Under **Operating System** → choose **Use custom** → select `xnav-1.1.0.img.xz`.
 3. Under **Storage** → select the CM4 eMMC / SD card.
 4. Click **Write**.
