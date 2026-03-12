@@ -35,7 +35,7 @@ else
 fi
 
 # Install udev rule for consistent interface naming
-RULES_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../config" 2>/dev/null && pwd)/70-limelight-ethernet.rules"
+RULES_SRC="$(dirname "${BASH_SOURCE[0]}" 2>/dev/null)/../config/70-limelight-ethernet.rules"
 if [ -f "$RULES_SRC" ]; then
   cp "$RULES_SRC" /etc/udev/rules.d/
   echo "  udev rule installed"

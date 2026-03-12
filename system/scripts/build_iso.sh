@@ -241,8 +241,7 @@ if [ -n "$QEMU_BINARY" ]; then
     rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/*
     rm -rf /usr/share/locale/[a-d]* /usr/share/locale/[f-z]* 2>/dev/null || true
     rm -rf /var/cache/apt/archives/* /tmp/*
-    find /usr/lib/python3* -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-    find /usr/lib/python3* -name "tests" -prune -exec rm -rf {} + 2>/dev/null || true
+    find /usr/lib/python3* \( -name "__pycache__" -o -name "tests" \) -prune -exec rm -rf {} + 2>/dev/null || true
 
     # Create venv with access to system-installed packages (cv2, numpy, RPi.GPIO).
     # Only the smaller pip-only packages are then installed from bundled wheels.

@@ -81,14 +81,14 @@ _CDN_MAP = {
     "bootstrap-icons.min.css": "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css",
     "socket.io.min.js": "https://cdn.jsdelivr.net/npm/socket.io@4.7.4/client-dist/socket.io.min.js",
 }
+_VENDOR_DIR = os.path.join(os.path.dirname(__file__), "static", "vendor")
 
 @app.route("/vendor/<path:filename>")
 def vendor_file(filename):
     """Serve locally cached vendor files, falling back to CDN redirect."""
-    vendor_dir = os.path.join(os.path.dirname(__file__), "static", "vendor")
-    filepath = os.path.join(vendor_dir, filename)
+    filepath = os.path.join(_VENDOR_DIR, filename)
     if os.path.isfile(filepath):
-        return send_from_directory(vendor_dir, filename)
+        return send_from_directory(_VENDOR_DIR, filename)
     if filename in _CDN_MAP:
         return redirect(_CDN_MAP[filename])
     return "Not found", 404
