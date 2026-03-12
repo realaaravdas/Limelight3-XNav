@@ -173,6 +173,22 @@ else
   echo "  ⚠ Network config file not found (will use system default)"
 fi
 
+# Check Limelight 3 ethernet driver config
+log "Checking Limelight 3 ethernet driver..."
+if [ -f "$ROOT/etc/udev/rules.d/70-limelight-ethernet.rules" ]; then
+  grep -q "r8152" "$ROOT/etc/udev/rules.d/70-limelight-ethernet.rules"
+  check "udev rule for Realtek USB ethernet"
+else
+  echo "  ⚠ Limelight 3 udev rule not found"
+fi
+
+if [ -f "$ROOT/etc/modules-load.d/usb-ethernet.conf" ]; then
+  grep -q "r8152" "$ROOT/etc/modules-load.d/usb-ethernet.conf"
+  check "r8152 module auto-load configured"
+else
+  echo "  ⚠ r8152 module auto-load not configured"
+fi
+
 # Check for common Python dependencies
 log "Checking Python dependencies..."
 grep -q "flask" "$ROOT/opt/xnav/vision_core/requirements.txt"
