@@ -1,0 +1,16 @@
+[Unit]
+Description=XNav First-Boot Setup (Ethernet + optional firmware refresh)
+DefaultDependencies=no
+After=network.target
+Before=xnav-vision.service
+ConditionPathExists=!/etc/xnav/.firstboot-done
+
+[Service]
+Type=oneshot
+ExecStart=/opt/xnav/firstboot.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

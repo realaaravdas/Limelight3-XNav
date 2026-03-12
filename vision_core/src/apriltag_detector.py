@@ -19,6 +19,9 @@ except ImportError:
         import pupil_apriltags as apriltag
         _APRILTAG_AVAILABLE = True
     except ImportError:
+        # NOTE: robotpy-apriltag (requirements.txt) is the supported arm64 package but
+        # has a different API; it is not used directly here.  The ISO build uses the
+        # native C++ apriltag library and does not rely on this Python detector at all.
         _APRILTAG_AVAILABLE = False
         apriltag = None
 

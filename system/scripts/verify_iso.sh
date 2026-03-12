@@ -1,8 +1,8 @@
 #!/bin/bash
-# XNav ISO Verification Script
-# Checks that the built image has all necessary components
+# XNav ISO Verification Script (v1.2.0 — C++ edition)
+# Checks that the built image contains all required components.
 #
-# Usage: sudo bash verify_iso.sh [image-file.img.xz]
+# Usage: sudo bash verify_iso.sh [/path/to/xnav-1.2.0.img.xz]
 
 set -e
 
@@ -11,34 +11,35 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-IMG_FILE="${1:-xnav-1.1.0.img.xz}"
+IMG_FILE="${1:-/tmp/xnav-build/xnav-1.2.0.img.xz}"
 
 if [ ! -f "$IMG_FILE" ]; then
   echo "ERROR: Image file not found: $IMG_FILE"
+  echo "Usage: sudo bash verify_iso.sh [image.img.xz]"
   exit 1
 fi
 
-log() { echo "[VERIFY] $*"; }
+log()   { echo "[VERIFY] $*"; }
+pass()  { echo "  ✓ $1"; }
+fail()  { echo "  ✗ $1  FAILED"; FAILURES=$(( FAILURES + 1 )); }
 check() {
-  if [ $? -eq 0 ]; then
-    echo "  ✓ $1"
-  else
-    echo "  ✗ $1 FAILED"
-    exit 1
-  fi
+  if [ $? -eq 0 ]; then pass "$1"; else fail "$1"; fi
 }
 
-log "Verifying XNav ISO: $IMG_FILE"
-log "================================"
+FAILURES=0
 
-# Decompress to temporary location
+log "Verifying XNav ISO: $IMG_FILE"
+log "================================================"
+
+# Decompress to a temporary location
 WORK_DIR="/tmp/xnav-verify-$$"
 mkdir -p "$WORK_DIR"
+trap "umount '$WORK_DIR/mnt/boot' 2>/dev/null; umount '$WORK_DIR/mnt/root' 2>/dev/null; losetup -d \"\$LOOP\" 2>/dev/null; rm -rf '$WORK_DIR'" EXIT
+
 log "Decompressing image..."
-xz -d -k -f -T0 "$IMG_FILE" -o "$WORK_DIR/xnav.img"
+xz -d -k -T0 "$IMG_FILE" -o "$WORK_DIR/xnav.img"
 check "Decompressed image"
 
-# Mount partitions
 log "Mounting partitions..."
 mkdir -p "$WORK_DIR/mnt/boot" "$WORK_DIR/mnt/root"
 LOOP=$(losetup -fP --show "$WORK_DIR/xnav.img")
@@ -47,198 +48,117 @@ mount "${LOOP}p2" "$WORK_DIR/mnt/root"
 check "Mounted partitions"
 
 ROOT="$WORK_DIR/mnt/root"
+BOOT="$WORK_DIR/mnt/boot"
 
-# Check XNav directories
-log "Checking XNav directory structure..."
-[ -d "$ROOT/opt/xnav" ]
-check "Directory /opt/xnav exists"
+# ── XNav binary ──────────────────────────────────────────────────────────────
+log "Checking XNav binary..."
+[ -f "$ROOT/opt/xnav/bin/xnav" ]
+check "Binary /opt/xnav/bin/xnav exists"
 
-[ -d "$ROOT/opt/xnav/vision_core" ]
-check "Directory /opt/xnav/vision_core exists"
+[ -x "$ROOT/opt/xnav/bin/xnav" ]
+check "Binary /opt/xnav/bin/xnav is executable"
 
+file "$ROOT/opt/xnav/bin/xnav" | grep -q "aarch64\|ARM aarch64\|ELF 64-bit"
+check "Binary is ARM64 (aarch64) ELF"
+
+# ── Web dashboard ─────────────────────────────────────────────────────────────
+log "Checking web dashboard..."
 [ -d "$ROOT/opt/xnav/web_dashboard" ]
 check "Directory /opt/xnav/web_dashboard exists"
 
-[ -d "$ROOT/etc/xnav" ]
-check "Directory /etc/xnav exists"
-
-# Check critical files
-log "Checking critical files..."
-[ -f "$ROOT/opt/xnav/vision_core/src/main.py" ]
-check "File main.py exists"
-
-[ -f "$ROOT/opt/xnav/web_dashboard/app.py" ]
-check "File app.py exists"
-
-[ -f "$ROOT/opt/xnav/vision_core/requirements.txt" ]
-check "File requirements.txt exists"
-
-[ -f "$ROOT/etc/xnav/config.json" ]
-check "File config.json exists"
-
-# Check first-boot script
-log "Checking first-boot setup..."
-[ -f "$ROOT/etc/xnav/first_boot.sh" ]
-check "File first_boot.sh exists"
-
-[ -x "$ROOT/etc/xnav/first_boot.sh" ]
-check "File first_boot.sh is executable"
-
-# Venv may be pre-installed during build (QEMU chroot) or installed on first boot
-if [ -f "$ROOT/opt/xnav/venv/bin/python3" ]; then
-  echo "  ✓ Python venv pre-installed in image (immediate boot support)"
-  # When venv is pre-installed, service files should already point to it
-  grep -q "/opt/xnav/venv/bin/python3" "$ROOT/etc/systemd/system/xnav-vision.service"
-  check "Vision service uses pre-installed venv Python"
-else
-  echo "  ✓ Python venv will be installed from bundled wheels on first boot"
-  grep -q "python3 -m venv\|pip install --no-index" "$ROOT/etc/xnav/first_boot.sh"
-  check "First-boot script installs packages from bundled wheels"
-fi
-
-grep -q "systemctl start xnav-dashboard.service\|systemctl restart xnav-dashboard.service" "$ROOT/etc/xnav/first_boot.sh"
-check "First-boot script starts dashboard"
-
-# Check pre-downloaded wheels for offline installation
-log "Checking offline package wheelhouse..."
-[ -d "$ROOT/opt/xnav/wheels" ]
-check "Wheels directory /opt/xnav/wheels exists"
-
-WHEEL_COUNT=$(ls -1 "$ROOT/opt/xnav/wheels"/*.whl 2>/dev/null | wc -l)
-[ "$WHEEL_COUNT" -gt 0 ]
-check "Wheels directory contains wheel files ($WHEEL_COUNT wheels)"
-
-# Check systemd services
-log "Checking systemd services..."
-[ -f "$ROOT/etc/systemd/system/xnav-vision.service" ]
-check "File xnav-vision.service exists"
-
-[ -f "$ROOT/etc/systemd/system/xnav-dashboard.service" ]
-check "File xnav-dashboard.service exists"
-
-grep -q "After=network-online.target" "$ROOT/etc/systemd/system/xnav-vision.service"
-check "Vision service waits for network"
-
-grep -q "After=network-online.target" "$ROOT/etc/systemd/system/xnav-dashboard.service"
-check "Dashboard service waits for network"
-
-grep -q "XNAV_DISABLE_DASHBOARD=1" "$ROOT/etc/systemd/system/xnav-vision.service"
-check "Vision service disables dashboard subprocess"
-
-# Check service symlinks
-log "Checking service symlinks..."
-[ -L "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-vision.service" ]
-check "xnav-vision.service is enabled"
-
-[ -L "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-dashboard.service" ]
-check "xnav-dashboard.service is enabled"
-
-# Check hostname
-log "Checking hostname configuration..."
-[ -f "$ROOT/etc/hostname" ]
-check "File /etc/hostname exists"
-
-grep -q "^xnav$" "$ROOT/etc/hostname"
-check "Hostname is set to 'xnav'"
-
-grep -q "xnav" "$ROOT/etc/hosts"
-check "Hostname entry in /etc/hosts"
-
-# Check boot config
-log "Checking boot configuration..."
-[ -f "$WORK_DIR/mnt/boot/config.txt" ]
-check "File config.txt exists"
-
-grep -q "start_x=1" "$WORK_DIR/mnt/boot/config.txt"
-check "Camera enabled in config.txt"
-
-grep -q "disable_camera_led=1" "$WORK_DIR/mnt/boot/config.txt"
-check "Camera LED disabled"
-
-# Check rc.local
-log "Checking rc.local..."
-if [ -f "$ROOT/etc/rc.local" ]; then
-  grep -q "first_boot.sh" "$ROOT/etc/rc.local"
-  check "rc.local calls first_boot.sh"
-else
-  echo "  ⚠ File /etc/rc.local does not exist (will be created)"
-fi
-
-# Check network config
-log "Checking network configuration..."
-if [ -f "$ROOT/etc/network/interfaces.d/eth0" ]; then
-  grep -q "iface eth0 inet dhcp" "$ROOT/etc/network/interfaces.d/eth0"
-  check "Network config uses DHCP"
-else
-  echo "  ⚠ Network config file not found (will use system default)"
-fi
-
-# Check for common Python dependencies
-log "Checking Python dependencies..."
-grep -q "flask" "$ROOT/opt/xnav/vision_core/requirements.txt"
-check "Flask in requirements"
-
-grep -q "flask-socketio" "$ROOT/opt/xnav/vision_core/requirements.txt"
-check "Flask-SocketIO in requirements"
-
-grep -q "opencv-python-headless" "$ROOT/opt/xnav/vision_core/requirements.txt"
-check "OpenCV in requirements"
-
-grep -q "pupil-apriltags" "$ROOT/opt/xnav/vision_core/requirements.txt"
-check "pupil-apriltags in requirements"
-
-grep -q "pyntcore" "$ROOT/opt/xnav/vision_core/requirements.txt"
-check "pyntcore in requirements"
-
-# Check web dashboard files
-log "Checking web dashboard files..."
 [ -d "$ROOT/opt/xnav/web_dashboard/templates" ]
 check "Web dashboard templates directory exists"
 
 [ -f "$ROOT/opt/xnav/web_dashboard/templates/index.html" ]
 check "Web dashboard index.html exists"
 
-[ -d "$ROOT/opt/xnav/web_dashboard/static" ]
-check "Web dashboard static directory exists"
+# ── Configuration ─────────────────────────────────────────────────────────────
+log "Checking configuration..."
+[ -f "$ROOT/etc/xnav/config.json" ]
+check "File /etc/xnav/config.json exists"
 
-[ -f "$ROOT/opt/xnav/web_dashboard/static/css/style.css" ]
-check "Web dashboard CSS exists"
+# ── Systemd services ──────────────────────────────────────────────────────────
+log "Checking systemd services..."
+[ -f "$ROOT/etc/systemd/system/xnav-vision.service" ]
+check "File xnav-vision.service exists"
 
-[ -f "$ROOT/opt/xnav/web_dashboard/static/js/app.js" ]
-check "Web dashboard JavaScript exists"
+[ -f "$ROOT/etc/systemd/system/xnav-firstboot.service" ]
+check "File xnav-firstboot.service exists"
 
-# Check for logger definition in app.py
-grep -q "logger = logging.getLogger" "$ROOT/opt/xnav/web_dashboard/app.py"
-check "Logger defined in app.py"
+[ -L "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-vision.service" ]
+check "xnav-vision.service is enabled (symlink present)"
 
-# Check vision core modules
-log "Checking vision core modules..."
-[ -f "$ROOT/opt/xnav/vision_core/src/config_manager.py" ]
-check "Module config_manager.py exists"
+[ -L "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-firstboot.service" ]
+check "xnav-firstboot.service is enabled (symlink present)"
 
-[ -f "$ROOT/opt/xnav/vision_core/src/camera_manager.py" ]
-check "Module camera_manager.py exists"
+# ── Ethernet driver ───────────────────────────────────────────────────────────
+log "Checking Realtek RTL8153B ethernet driver..."
+[ -f "$ROOT/etc/udev/rules.d/70-limelight-ethernet.rules" ]
+check "Udev rule 70-limelight-ethernet.rules exists"
 
-[ -f "$ROOT/opt/xnav/vision_core/src/apriltag_detector.py" ]
-check "Module apriltag_detector.py exists"
+grep -q "eth0" "$ROOT/etc/udev/rules.d/70-limelight-ethernet.rules"
+check "Udev rule names adapter 'eth0'"
 
-[ -f "$ROOT/opt/xnav/vision_core/src/pose_calculator.py" ]
-check "Module pose_calculator.py exists"
+[ -f "$ROOT/etc/modules-load.d/usb-ethernet.conf" ]
+check "modules-load.d/usb-ethernet.conf exists"
 
-[ -f "$ROOT/opt/xnav/vision_core/src/nt_publisher.py" ]
-check "Module nt_publisher.py exists"
+grep -q "r8152" "$ROOT/etc/modules-load.d/usb-ethernet.conf"
+check "r8152 module is set to auto-load"
 
-# Cleanup
+# firmware-realtek should be installed in the image
+find "$ROOT/lib/firmware" -name "rtl8153*" 2>/dev/null | grep -q . \
+  || find "$ROOT/usr/lib/firmware" -name "rtl*" 2>/dev/null | grep -q .
+check "Realtek firmware files present in image"
+
+# ── Network config ────────────────────────────────────────────────────────────
+log "Checking network configuration..."
+[ -f "$ROOT/etc/network/interfaces.d/eth0" ]
+check "Network config file eth0 exists"
+
+grep -q "iface eth0 inet dhcp" "$ROOT/etc/network/interfaces.d/eth0"
+check "eth0 configured for DHCP"
+
+# ── SSH ───────────────────────────────────────────────────────────────────────
+log "Checking SSH..."
+[ -f "$BOOT/ssh" ]
+check "SSH enabled (ssh file in boot partition)"
+
+# ── Hostname ──────────────────────────────────────────────────────────────────
+log "Checking hostname..."
+grep -q "^xnav$" "$ROOT/etc/hostname"
+check "Hostname is 'xnav'"
+
+grep -q "xnav" "$ROOT/etc/hosts"
+check "Hostname entry in /etc/hosts"
+
+# ── Boot config ───────────────────────────────────────────────────────────────
+log "Checking boot configuration..."
+grep -q "start_x=1" "$BOOT/config.txt"
+check "Camera enabled (start_x=1)"
+
+grep -q "disable_camera_led=1" "$BOOT/config.txt"
+check "Camera LED disabled"
+
+grep -q "usbcore.autosuspend=-1" "$BOOT/config.txt"
+check "USB autosuspend disabled (keeps ethernet active)"
+
+# ── First-boot script ─────────────────────────────────────────────────────────
+log "Checking first-boot script..."
+[ -f "$ROOT/opt/xnav/firstboot.sh" ]
+check "First-boot script /opt/xnav/firstboot.sh exists"
+
+[ -x "$ROOT/opt/xnav/firstboot.sh" ]
+check "First-boot script is executable"
+
+grep -q "r8152" "$ROOT/opt/xnav/firstboot.sh"
+check "First-boot script loads r8152 module"
+
+# ── Summary ───────────────────────────────────────────────────────────────────
 log ""
-log "Unmounting..."
-sync
-umount "$WORK_DIR/mnt/boot"
-umount "$WORK_DIR/mnt/root"
-losetup -d "$LOOP"
-rm -rf "$WORK_DIR"
-
-log ""
-log "================================"
-log "✓ All checks passed!"
-log "  Image is ready for flashing"
-log "================================"
+log "================================================"
+if [ "$FAILURES" -eq 0 ]; then
+  log "✓ All checks passed — image is ready for flashing"
+else
+  log "✗ $FAILURES check(s) FAILED — review output above"
+  exit 1
+fi

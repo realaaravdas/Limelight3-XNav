@@ -1,23 +1,34 @@
-# Building the XNav ISO
+# Building the XNav ISO (v1.2.0)
 
-This guide explains how to build a flashable XNav `.img.xz` image on a standard Linux computer (including WSL2 on Windows) and flash it to your Limelight 3 hardware.
+This guide explains how to build a flashable XNav `.img.xz` image for the
+**Limelight 3** (Raspberry Pi Compute Module 3 or 4) on a standard Linux
+computer (including WSL2 on Windows).
 
 ---
 
 ## Overview
 
-XNav's vision core is written in **C++** and compiles to a single ~2 MB binary. There are no Python packages, no pip, and no virtual environments. The ISO build process:
+XNav's vision core is a single **C++ binary** (`/opt/xnav/bin/xnav`).  
+There are **no Python packages, no pip, no wheels** in the ISO.
 
-1. Downloads the official Raspberry Pi OS Lite (64-bit) base image
+The build process:
+
+1. Downloads the official Raspberry Pi OS Lite (64-bit / arm64) base image
 2. Expands and mounts it via a loop device
-3. Injects all XNav C++ source, web dashboard, and configuration
-4. Compiles the C++ binary inside an **ARM64 QEMU chroot**
-5. Installs required runtime shared libraries via `apt`
-6. Removes build tools (keeps only runtime)
-7. Shrinks the filesystem to minimum size
-8. Compresses the result with `xz -9`
+3. Injects the XNav C++ source, web dashboard, config files, and system services
+4. Sets up the **Realtek RTL8153B USB ethernet driver** (`firmware-realtek`,
+   `r8152` module, udev rule) — required for headless SSH access
+5. **Compiles the C++ binary**:
+   - **Fast path**: cross-compiled on the host with `aarch64-linux-gnu-g++` (~1-3 min)
+   - **Fallback**: compiled inside an ARM64 QEMU chroot (~10-20 min)
+6. Installs `avahi-daemon` for `xnav.local` mDNS (headless IP discovery)
+7. Enables SSH by default
+8. Strips development headers from the image (keeps runtime libs, saves ~100-150 MB)
+9. Shrinks the filesystem to minimum size
+10. Compresses with **`xz -3`** (~2-5 min vs 15-30 min for `xz -9`)
 
-The resulting image is dramatically smaller than the previous Python-based version (no ~400 MB Python wheel bundle), which resolves the 91% flash stall on Limelight 3 eMMC.
+**Resulting image fits comfortably on the Limelight 3's 8 GB eMMC** (~350-550 MB
+compressed; well under 6 GB uncompressed).
 
 ---
 
@@ -25,14 +36,14 @@ The resulting image is dramatically smaller than the previous Python-based versi
 
 | Requirement | Notes |
 |-------------|-------|
-| **OS** | Linux or **WSL2** on Windows (Ubuntu 22.04 recommended) |
-| **Architecture** | x86-64 (amd64) — ARM64 cross-compilation via QEMU |
+| **OS** | Linux or **WSL2** on Windows (Ubuntu 22.04+ recommended) |
+| **Architecture** | x86-64 (amd64) |
 | **Disk space** | ≥ 8 GB free in `/tmp` |
 | **RAM** | 2 GB minimum |
-| **Root / sudo** | Required — the script mounts loop devices |
-| **Internet** | Required to download base RPi OS image (~500 MB) and apt packages |
+| **Root / sudo** | Required — loop device mounting |
+| **Internet** | Required to download base RPi OS image + apt packages |
 
-### Required packages
+### Required packages (minimal)
 
 ```bash
 sudo apt-get update
@@ -47,7 +58,22 @@ sudo apt-get install -y \
     binfmt-support
 ```
 
-> **WSL2 note:** Ensure you are running a WSL2 distro (not WSL1). Loop device and QEMU support require WSL2's Linux kernel. Enable `systemd` in WSL2 (`/etc/wsl.conf`: `[boot]\nsystemd=true`) and restart WSL.
+### Recommended: cross-compile toolchain (saves 10-20 min)
+
+If these packages are installed, the script cross-compiles the C++ binary on
+the host in ~1-3 min instead of using QEMU emulation (~10-20 min):
+
+```bash
+sudo apt-get install -y \
+    gcc-aarch64-linux-gnu \
+    g++-aarch64-linux-gnu \
+    cmake \
+    pkg-config
+```
+
+> **WSL2 note:** Ensure WSL2 (not WSL1) is used.  
+> Enable systemd: add `[boot]\nsystemd=true` to `/etc/wsl.conf` and restart WSL.  
+> Run `sudo modprobe loop` inside WSL2 if loop device errors occur.
 
 ---
 
@@ -66,98 +92,110 @@ cd /opt/xnav-src
 sudo bash system/scripts/build_iso.sh
 ```
 
-The script will:
-1. Download the official Raspberry Pi OS Lite 64-bit image (~500 MB) to `/tmp/xnav-build/`
-2. Decompress and copy the base image
-3. Expand the image by **512 MB** (much smaller than before — no Python wheels)
-4. Mount the image partitions via a loop device
-5. Inject XNav C++ source, web dashboard, and default configuration
-6. Download Bootstrap CSS/JS for offline web dashboard
-7. **Build the C++ binary inside an ARM64 QEMU chroot** (installs apt build tools, compiles, removes build tools)
-8. Enable the `xnav-vision` systemd service
-9. Set the hostname to `xnav`
-10. Shrink the filesystem to minimum size
-11. Compress the final image with `xz -9` (5–15 minutes)
+### What happens
+
+| Step | With cross-compile | QEMU only |
+|------|--------------------|-----------|
+| Download base image | ~5 min | ~5 min |
+| apt-get (firmware + libs) | ~10-15 min | ~10-15 min |
+| C++ compilation | ~1-3 min ✓ | ~10-20 min |
+| Header strip + filesystem shrink | ~2 min | ~2 min |
+| xz -3 compression | ~2-5 min | ~2-5 min |
+| **Total** | **~20-30 min** | **~30-47 min** |
 
 ### Expected output
 
 ```
-[BUILD] XNav ISO Builder v1.1.0 (C++ edition)
-[BUILD] Repo: /opt/xnav-src
-[BUILD] Using image injection method...
-[BUILD] Downloading base Raspberry Pi OS Lite (64-bit)...
+[BUILD] XNav ISO Builder v1.2.0 — Limelight 3 (CM3/CM4)
+[BUILD] Downloading Raspberry Pi OS Lite arm64 (~500 MB)...
 ...
-[BUILD] Building C++ binary in ARM64 chroot (QEMU)...
+[BUILD] Installing packages in ARM64 chroot...
+[BUILD]   firmware-realtek  — RTL8153B USB ethernet firmware (REQUIRED)
 ...
-[BUILD] C++ binary built and installed: /opt/xnav/bin/xnav
-[BUILD] Root filesystem: 1234 MiB
-[BUILD] Image size after shrink: 1290 MiB
-[BUILD] Compressing image...
-[BUILD] ═══════════════════════════════════════════
-[BUILD]   Build complete: xnav-1.1.0.img.xz
-[BUILD]   Flash with: rpi-imager or
-[BUILD]     xzcat xnav-1.1.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
-[BUILD] ═══════════════════════════════════════════
+[BUILD] Cross-compiling xnav on host (fast path — ~1-3 min)...
+...
+[BUILD] Cross-compiled: -rwxr-xr-x 1 root root 2.1M /opt/xnav/bin/xnav
+[BUILD] Removing development headers (keeping runtime libs)...
+[BUILD] Root filesystem after shrink: 1124 MiB
+[BUILD] Uncompressed image: 1192 MiB
+[BUILD] Compressing with xz -3 (~2-5 min)...
+[BUILD] ═══════════════════════════════════════════════════════════════
+[BUILD]   Build complete!
+[BUILD]   File: /tmp/xnav-build/xnav-1.2.0.img.xz
+[BUILD]   Size: 387M
 ```
 
 The finished image is at:
 ```
-/tmp/xnav-build/xnav-1.1.0.img.xz
+/tmp/xnav-build/xnav-1.2.0.img.xz
 ```
-
-### Build time estimate
-
-| Step | Time |
-|------|------|
-| Download base image | ~5 min (500 MB, varies by connection) |
-| QEMU apt-get install (build tools) | ~10–20 min |
-| C++ compilation (QEMU, 4 cores) | ~5–10 min |
-| apt-get install (runtime libs only) | ~5 min |
-| Filesystem shrink + compress | ~10–20 min |
-| **Total** | **~35–55 min** |
 
 ---
 
-## Step 3 — Flash with balenaEtcher
+## Step 3 — Flash the Image
 
-[balenaEtcher](https://etcher.balena.io/) is the easiest cross-platform tool for flashing images.
+### With Raspberry Pi Imager (easiest)
 
-### 3a — Install balenaEtcher
+1. Open [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+2. **Operating System** → **Use custom** → select `xnav-1.2.0.img.xz`
+3. **Storage** → select the Limelight 3 eMMC / SD card
+4. Click **Write**
 
-Download from **https://etcher.balena.io/** (AppImage for Linux, `.exe` for Windows).
+### With balenaEtcher
 
-### 3b — Put Limelight 3 into USB Boot Mode
+1. Open [balenaEtcher](https://etcher.balena.io/)
+2. **Flash from file** → select `xnav-1.2.0.img.xz`
+3. **Select target** → choose the Limelight 3 eMMC
+4. **Flash!**
 
-1. **Remove power** from the Limelight 3.
-2. Locate the **Boot Mode jumper** (`BOOT` / `nBOOT`). Bridge the jumper pins.
-3. Connect a **USB-A to USB-A cable** from the Limelight 3 USB port to your computer.
-4. **Apply power** to the Limelight 3.
+### With command line (Linux)
 
-The CM4 eMMC will appear as a USB storage device. Verify with `lsblk` (Linux) or Disk Manager (Windows).
+```bash
+xzcat /tmp/xnav-build/xnav-1.2.0.img.xz | \
+  sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
+```
 
-### 3c — Flash the Image
+Replace `/dev/sdX` with the correct target device — verify carefully with `lsblk`.
 
-1. Open **balenaEtcher**
-2. **Flash from file** → select `xnav-1.1.0.img.xz` (balenaEtcher decompresses automatically)
-3. **Select target** → choose the Limelight 3 eMMC drive
-4. **Flash!** — wait for write + verification to complete (~5–10 min)
-
-### 3d — Finish Up
+### Put Limelight 3 into USB Boot Mode (for eMMC flashing)
 
 1. Remove power from the Limelight 3
-2. Remove the Boot Mode jumper
-3. Disconnect the USB cable
+2. Bridge the **Boot Mode jumper** (`BOOT` / `nBOOT`)
+3. Connect a USB-A to USB-A cable: Limelight 3 → computer
+4. Apply power — the eMMC appears as a USB storage device
+5. Flash the image, then remove power, remove jumper, disconnect USB
 
 ---
 
 ## Step 4 — First Boot
 
-1. Connect the Limelight 3 to your robot network via Ethernet
-2. Apply power
-3. Wait **~30 seconds** for boot (no first-boot install needed — C++ binary starts immediately)
-4. Open a browser:
-   - `http://xnav.local:5800` (mDNS)
-   - or `http://10.TE.AM.11:5800` (replace `TE.AM` with your team number)
+1. Connect an **Ethernet cable** (required — there is no Wi-Fi)
+2. Apply power to the Limelight 3
+3. Wait **~30-45 seconds** for boot
+4. On first power-on, `xnav-firstboot.service` runs automatically:
+   - Loads the `r8152` Realtek USB ethernet module
+   - Brings up `eth0` via DHCP
+   - **If an internet router is connected** (e.g., home setup): refreshes
+     `firmware-realtek` to ensure the latest version
+   - Disables itself — future boots skip this step entirely
+5. SSH into the device:
+
+```bash
+ssh pi@xnav.local         # via mDNS (avahi-daemon)
+# or if mDNS is not available:
+ssh pi@<IP from router>   # check your router's DHCP table
+```
+
+6. Open the web dashboard:
+   - `http://xnav.local:5800`
+   - or `http://<device-IP>:5800`
+
+### On the robot network (intranet)
+
+After first boot, the device works on any DHCP network — no internet required.
+Plug it into the robot Ethernet switch and it will get an IP automatically.
+The `firmware-realtek` is already baked into the image, so ethernet works
+even without ever connecting to the internet.
 
 ---
 
@@ -165,41 +203,39 @@ The CM4 eMMC will appear as a USB storage device. Verify with `lsblk` (Linux) or
 
 | Problem | Solution |
 |---------|----------|
-| `losetup` fails with "no loop devices available" | Run: `sudo modprobe loop` |
-| Download fails | Download RPi OS Lite manually from [raspberrypi.com/software/operating-systems/](https://www.raspberrypi.com/software/operating-systems/) and save as `/tmp/xnav-build/raspios_lite.img` |
+| `losetup` fails with "no loop devices" | Run `sudo modprobe loop` |
+| Download fails | Download manually from [raspberrypi.com/software/operating-systems](https://www.raspberrypi.com/software/operating-systems/) and save as `/tmp/xnav-build/raspios_lite.img` |
 | `parted` not found | `sudo apt-get install parted` |
-| `resize2fs` not found | `sudo apt-get install e2fsprogs` |
-| QEMU chroot build fails | The image still boots; SSH in and run `/opt/xnav/build_on_device.sh` manually |
-| CM4 not detected as USB drive | Ensure BOOT jumper is bridged and power was cycled **after** connecting USB |
-| Dashboard not reachable after flashing | Wait 30 seconds for boot; check Ethernet is connected; try IP directly |
-| WSL2 loop device issues | Run `sudo modprobe loop` inside WSL2; ensure WSL2 kernel supports loop devices |
+| `qemu-aarch64-static` not found | `sudo apt-get install qemu-user-static binfmt-support` |
+| Cross-compile fails, QEMU fallback used | Normal — QEMU build is slower but produces an identical image |
+| Ethernet not working after flash | Ensure first-boot ran: `sudo journalctl -u xnav-firstboot` |
+| `ssh pi@xnav.local` fails | Try `ssh pi@<IP>` using your router's DHCP table; or check `avahi-daemon` with `systemctl status avahi-daemon` |
+| Dashboard not reachable | Wait 30-45 s for boot; check `systemctl status xnav-vision` via SSH |
+| CM3/CM4 not detected as USB drive | Ensure BOOT jumper is bridged and power was cycled **after** connecting USB |
+| WSL2 loop device issues | Run `sudo modprobe loop` inside WSL2 |
 
 ---
 
-## Alternative: Flash with Command Line (Linux)
+## Verifying the Image
 
 ```bash
-xzcat /tmp/xnav-build/xnav-1.1.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
+sudo bash system/scripts/verify_iso.sh /tmp/xnav-build/xnav-1.2.0.img.xz
 ```
 
-Replace `/dev/sdX` with the correct target device. **Verify the device name carefully.**
+This mounts the image and checks for the binary, services, ethernet driver
+files, SSH, hostname, and boot config. All checks must pass before flashing.
 
 ---
 
-## Alternative: Flash with Raspberry Pi Imager
+## Size Reference
 
-1. Open [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
-2. **Operating System** → **Use custom** → select `xnav-1.1.0.img.xz`
-3. **Storage** → select the CM4 eMMC / SD card
-4. Click **Write**
+| Version | Approach | Compressed size | First-boot delay |
+|---------|----------|-----------------|-----------------|
+| v1.0 (Python) | Python wheels bundled | ~950 MB | 2-5 min (pip install) |
+| v1.1 (C++) | QEMU compile, xz -9 | ~350 MB | None |
+| **v1.2 (C++)** | Cross-compile, xz -3, ethernet | **~350-550 MB** | **~15 s (eth setup)** |
 
----
-
-## Size Comparison
-
-| Version | Python wheels | Image size (compressed) | First-boot delay |
-|---------|-------------|------------------------|-----------------|
-| v1.0 (Python) | ~400 MB bundled | ~950 MB | 2–5 min |
-| v1.1 (C++) | None | ~350 MB | None |
-
-The C++ rewrite eliminates `opencv-python-headless`, `numpy`, `pupil-apriltags`, `pyntcore`, `flask`, `flask-socketio`, and all their dependencies.
+The C++ rewrite eliminates `opencv-python-headless`, `numpy`, `dt-apriltags`,
+`pupil-apriltags`, `pyntcore`, `flask`, `flask-socketio`, and all their
+dependencies — the image fits on any microSD card ≥ 4 GB and is well within
+the Limelight 3's 8 GB eMMC limit.

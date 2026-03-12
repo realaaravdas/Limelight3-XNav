@@ -1,6 +1,8 @@
 #!/bin/bash
 # Download Python wheels for offline installation (LOCAL TESTING)
-# This script downloads wheels for testing on the current architecture
+# NOTE: The ISO build uses a C++ binary — these wheels are not needed for ISO.
+# requirements.txt uses robotpy-apriltag (has arm64 wheels) instead of
+# dt-apriltags (which had no arm64 wheels and depended on pupil-apriltags).
 # Usage: bash download_wheels.sh [output_dir]
 
 set -e
