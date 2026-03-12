@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(xnav VERSION 1.1.0 LANGUAGES CXX)
+project(xnav VERSION 1.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,11 +13,15 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
 
-# Dependencies
-find_package(OpenCV 4 REQUIRED COMPONENTS core imgproc videoio calib3d imgcodecs)
+# ── Dependencies via pkg-config ───────────────────────────────────────────────
+# Using pkg-config for all deps makes cross-compilation work correctly:
+# when PKG_CONFIG_SYSROOT_DIR is set the sysroot is automatically prepended
+# to all include/library paths, so the cross-compiler points at the ARM64
+# rootfs headers instead of the host headers.
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(APRILTAG REQUIRED apriltag)
-pkg_check_modules(GPIOD REQUIRED libgpiod)
+pkg_check_modules(OPENCV   REQUIRED IMPORTED_TARGET opencv4)
+pkg_check_modules(APRILTAG REQUIRED IMPORTED_TARGET apriltag)
+pkg_check_modules(GPIOD    REQUIRED IMPORTED_TARGET libgpiod)
 
 # Source files
 set(SOURCES
@@ -39,15 +43,12 @@ add_executable(xnav ${SOURCES})
 target_include_directories(xnav PRIVATE
     src/
     third_party/
-    ${OpenCV_INCLUDE_DIRS}
-    ${APRILTAG_INCLUDE_DIRS}
-    ${GPIOD_INCLUDE_DIRS}
 )
 
 target_link_libraries(xnav
-    ${OpenCV_LIBS}
-    ${APRILTAG_LIBRARIES}
-    ${GPIOD_LIBRARIES}
+    PkgConfig::OPENCV
+    PkgConfig::APRILTAG
+    PkgConfig::GPIOD
     pthread
 )
 

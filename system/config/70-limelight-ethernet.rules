@@ -1,0 +1,16 @@
+# XNav Limelight 3 — Realtek RTL8153B USB Gigabit Ethernet naming rule
+# The Limelight 3 uses a Realtek RTL8153B attached via USB.  Raspberry Pi OS
+# Bookworm may assign unpredictable interface names (enx…, eth1, etc.).
+# This rule pins the adapter to the stable name "eth0" so that network config
+# and service scripts always find the ethernet port at the same name.
+#
+# Matching is done on the USB vendor/product IDs for the RTL8152/8153 family
+# (0bda:8152 and 0bda:8153).  The subsystem guard ensures we only rename
+# net devices, not the USB device node itself.
+SUBSYSTEM=="net", ACTION=="add", \
+    ATTR{idVendor}=="0bda", ATTR{idProduct}=="8153", \
+    NAME="eth0"
+
+SUBSYSTEM=="net", ACTION=="add", \
+    ATTR{idVendor}=="0bda", ATTR{idProduct}=="8152", \
+    NAME="eth0"
