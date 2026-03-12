@@ -309,7 +309,7 @@ losetup -d "$LOOP"
 
 # Shrink the partition to match the filesystem (2 MiB alignment buffer)
 NEW_PART_END=$(( ROOT_OFFSET + FS_BYTES + 2 * 1024 * 1024 ))
-echo "Yes" | parted "$OUTPUT_IMG" -s resizepart 2 ${NEW_PART_END}B
+echo "Yes" | parted ---pretend-input-tty "$OUTPUT_IMG" resizepart 2 ${NEW_PART_END}B
 
 # Truncate the image file to remove the now-unused trailing space (1 MiB tail)
 NEW_IMG_SIZE=$(( NEW_PART_END + 1 * 1024 * 1024 ))
