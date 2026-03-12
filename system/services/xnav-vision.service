@@ -1,13 +1,12 @@
 [Unit]
 Description=XNav Vision System
-After=network-online.target
+After=network-online.target xnav-firstboot.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
-# Python interpreter will be updated by first-boot script to use venv
-ExecStart=/usr/bin/python3 /opt/xnav/vision_core/src/main.py
+ExecStart=/opt/xnav/venv/bin/python3 /opt/xnav/vision_core/src/main.py
 WorkingDirectory=/opt/xnav
 Restart=always
 RestartSec=3
@@ -21,8 +20,6 @@ CPUAffinity=0 1 2 3
 # Realtime priority
 Nice=-10
 IOSchedulingClass=realtime
-# Delay start to allow first-boot setup to complete
-ExecStartPre=/bin/sleep 10
 
 [Install]
 WantedBy=multi-user.target

@@ -2,7 +2,10 @@
 # opencv-python-headless, numpy, and RPi.GPIO are installed via apt during the
 # ISO build to avoid bundling their large pip wheels. This file lists only the
 # packages that have no suitable apt equivalent and must be pip-installed.
-pupil-apriltags>=1.0.4
+#
+# dt-apriltags is a maintained fork of pupil-apriltags with pre-built ARM64
+# (aarch64) wheels, so it installs correctly on the Raspberry Pi CM4.
+dt-apriltags>=3.0.0
 pyntcore>=2024.0.0
 flask>=3.0.0
 flask-socketio>=5.3.0
