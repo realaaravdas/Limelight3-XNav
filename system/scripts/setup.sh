@@ -37,7 +37,20 @@ apt-get install -y -qq \
   git curl \
   hostapd dhcpcd5 \
   pigpio \
+  firmware-realtek usbutils \
   2>&1 | tail -5
+
+# ── Limelight 3 Ethernet Driver ──────────────────────────────────────────────
+log "Setting up Limelight 3 ethernet driver..."
+
+# Ensure r8152 module loads on boot (Realtek RTL8153 USB ethernet)
+mkdir -p /etc/modules-load.d
+echo "r8152" > /etc/modules-load.d/usb-ethernet.conf
+modprobe r8152 2>/dev/null || true
+
+# Install udev rule for consistent interface naming
+cp "$REPO_ROOT/system/config/70-limelight-ethernet.rules" /etc/udev/rules.d/ 2>/dev/null || true
+udevadm control --reload-rules 2>/dev/null || true
 
 # ── Enable camera & GPIO ─────────────────────────────────────────────────────
 log "Enabling camera interface..."

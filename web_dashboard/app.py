@@ -15,7 +15,7 @@ import logging
 # Allow importing vision core modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../vision_core/src"))
 
-from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
+from flask import Flask, render_template, request, jsonify, Response, redirect, url_for, send_from_directory
 from flask_socketio import SocketIO, emit
 
 import numpy as np
@@ -73,6 +73,25 @@ def get_cfg():
 @app.route("/")
 def index():
     return render_template("index.html")
+
+# ─── Vendor files (local cache with CDN fallback) ────────────────────────────
+
+_CDN_MAP = {
+    "bootstrap.min.css": "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css",
+    "bootstrap-icons.min.css": "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css",
+    "socket.io.min.js": "https://cdn.jsdelivr.net/npm/socket.io@4.7.4/client-dist/socket.io.min.js",
+}
+_VENDOR_DIR = os.path.join(os.path.dirname(__file__), "static", "vendor")
+
+@app.route("/vendor/<path:filename>")
+def vendor_file(filename):
+    """Serve locally cached vendor files, falling back to CDN redirect."""
+    filepath = os.path.join(_VENDOR_DIR, filename)
+    if os.path.isfile(filepath):
+        return send_from_directory(_VENDOR_DIR, filename)
+    if filename in _CDN_MAP:
+        return redirect(_CDN_MAP[filename])
+    return "Not found", 404
 
 @app.route("/api/status")
 def api_status():

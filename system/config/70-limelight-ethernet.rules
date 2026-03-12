@@ -1,0 +1,4 @@
+# Limelight 3 Ethernet - Realtek RTL8152/RTL8153/RTL8153B USB Gigabit Ethernet
+# Ensures the USB ethernet adapter on the Limelight 3 carrier board is
+# consistently named "eth0" regardless of the underlying predictable-name policy.
+SUBSYSTEM=="net", ACTION=="add", DRIVERS=="r8152", NAME="eth0"

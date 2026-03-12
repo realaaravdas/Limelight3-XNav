@@ -159,6 +159,34 @@ log "Copying pre-downloaded Python wheels..."
 mkdir -p "$ROOT/opt/xnav/wheels"
 cp "$TEMP_VENV"/wheels/*.whl "$ROOT/opt/xnav/wheels/"
 
+# ── Limelight 3 Ethernet Driver Setup (outside chroot) ────────────────────────
+# These files ensure the Realtek RTL8153 USB ethernet works on boot even if
+# the QEMU chroot step is skipped (e.g., cross-platform builds).
+log "Installing Limelight 3 ethernet driver config..."
+
+# udev rule: name the Realtek USB adapter "eth0"
+mkdir -p "$ROOT/etc/udev/rules.d"
+cp "$REPO_ROOT/system/config/70-limelight-ethernet.rules" "$ROOT/etc/udev/rules.d/"
+
+# Module loading: ensure r8152 loads on every boot
+mkdir -p "$ROOT/etc/modules-load.d"
+echo "r8152" > "$ROOT/etc/modules-load.d/usb-ethernet.conf"
+
+# Copy network setup helper script
+cp "$REPO_ROOT/system/scripts/setup_network.sh" "$ROOT/opt/xnav/"
+chmod +x "$ROOT/opt/xnav/setup_network.sh"
+
+# ── Download web dashboard vendor files for offline use ───────────────────────
+log "Downloading web dashboard vendor files for offline use..."
+VENDOR_DIR="$ROOT/opt/xnav/web_dashboard/static/vendor"
+mkdir -p "$VENDOR_DIR"
+curl -sL "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" \
+  -o "$VENDOR_DIR/bootstrap.min.css" 2>/dev/null || log "WARN: Could not download bootstrap.min.css"
+curl -sL "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" \
+  -o "$VENDOR_DIR/bootstrap-icons.min.css" 2>/dev/null || log "WARN: Could not download bootstrap-icons.min.css"
+curl -sL "https://cdn.jsdelivr.net/npm/socket.io@4.7.4/client-dist/socket.io.min.js" \
+  -o "$VENDOR_DIR/socket.io.min.js" 2>/dev/null || log "WARN: Could not download socket.io.min.js"
+
 # ── Pre-install Python packages via QEMU chroot (immediate boot support) ─────
 # If qemu-aarch64-static is available, install packages now so the device
 # can start services immediately on first boot without any pip step.
@@ -191,13 +219,30 @@ if [ -n "$QEMU_BINARY" ]; then
 
   chroot "$ROOT" /bin/bash -ec '
     export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+
+    # ── Limelight 3 Ethernet Driver ──────────────────────────────────────
+    # The Limelight 3 uses a Realtek RTL8153B USB Gigabit Ethernet adapter.
+    # The r8152 kernel module handles it; firmware-realtek provides firmware.
+    apt-get install -y --no-install-recommends firmware-realtek usbutils
+
+    # Ensure r8152 module loads on every boot
+    mkdir -p /etc/modules-load.d
+    echo "r8152" > /etc/modules-load.d/usb-ethernet.conf
+
+    # ── Python packages ──────────────────────────────────────────────────
     # Install large packages via apt to avoid bundling their wheels in the image.
     # python3-opencv (~4.6 from RPi OS Bookworm) covers all cv2 usage in the codebase.
-    apt-get update -qq
     apt-get install -y --no-install-recommends python3-opencv python3-numpy python3-rpi.gpio
-    # Remove apt cache to reclaim space (package lists + downloaded .deb files).
+
+    # ── Cleanup to reduce image size ─────────────────────────────────────
     apt-get clean
     rm -rf /var/lib/apt/lists/*
+    rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/*
+    rm -rf /usr/share/locale/[a-d]* /usr/share/locale/[f-z]* 2>/dev/null || true
+    rm -rf /var/cache/apt/archives/* /tmp/*
+    find /usr/lib/python3* \( -name "__pycache__" -o -name "tests" \) -prune -exec rm -rf {} + 2>/dev/null || true
+
     # Create venv with access to system-installed packages (cv2, numpy, RPi.GPIO).
     # Only the smaller pip-only packages are then installed from bundled wheels.
     python3 -m venv --system-site-packages /opt/xnav/venv
@@ -262,6 +307,38 @@ echo "XNav First-Boot Setup - $(date)"
 echo "========================================="
 
 cd /opt/xnav
+
+# ── Limelight 3 Ethernet Driver ─────────────────────────────────────────
+echo "Ensuring Limelight 3 ethernet driver is loaded..."
+modprobe r8152 2>/dev/null || true
+
+# If eth0 has no IP, try to bring it up
+if ! ip addr show eth0 2>/dev/null | grep -q "inet "; then
+  echo "Bringing up eth0..."
+  ip link set eth0 up 2>/dev/null || true
+  dhcpcd eth0 2>/dev/null || dhclient eth0 2>/dev/null || true
+  sleep 3
+fi
+
+# If we have internet, install firmware-realtek (needed for some RTL8153 variants)
+if ping -c1 -W3 8.8.8.8 &>/dev/null; then
+  echo "Internet available - installing Realtek firmware..."
+  apt-get update -qq 2>/dev/null
+  apt-get install -y --no-install-recommends firmware-realtek 2>/dev/null | tail -2
+  apt-get clean 2>/dev/null
+  rm -rf /var/lib/apt/lists/* 2>/dev/null
+
+  # Cache web dashboard vendor files for offline use
+  echo "Downloading web dashboard vendor files for offline use..."
+  VENDOR_DIR="/opt/xnav/web_dashboard/static/vendor"
+  mkdir -p "$VENDOR_DIR"
+  curl -sL "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" \
+    -o "$VENDOR_DIR/bootstrap.min.css" 2>/dev/null || true
+  curl -sL "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" \
+    -o "$VENDOR_DIR/bootstrap-icons.min.css" 2>/dev/null || true
+  curl -sL "https://cdn.jsdelivr.net/npm/socket.io@4.7.4/client-dist/socket.io.min.js" \
+    -o "$VENDOR_DIR/socket.io.min.js" 2>/dev/null || true
+fi
 
 # Check if Python packages were already pre-installed during ISO build
 if [ -f /opt/xnav/venv/bin/python3 ]; then
