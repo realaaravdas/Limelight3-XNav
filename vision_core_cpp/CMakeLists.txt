@@ -50,6 +50,8 @@ target_link_libraries(xnav
     PkgConfig::APRILTAG
     PkgConfig::GPIOD
     pthread
+    lapack
+    blas
 )
 
 # cpp-httplib: HTTP only (no SSL needed)
