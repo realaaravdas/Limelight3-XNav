@@ -184,8 +184,8 @@ check "xnav-expand-rootfs.service is enabled"
 
 # Check that init_resize.sh is in cmdline.txt
 if [ -f "$WORK_DIR/mnt/boot/cmdline.txt" ]; then
-  grep -q "init_resize\|init=" "$WORK_DIR/mnt/boot/cmdline.txt"
-  check "cmdline.txt has init_resize or init= parameter"
+  grep -q "init_resize\.sh" "$WORK_DIR/mnt/boot/cmdline.txt"
+  check "cmdline.txt has init_resize.sh"
 else
   echo "  ⚠ cmdline.txt not found in boot partition"
 fi

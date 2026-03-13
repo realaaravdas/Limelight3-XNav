@@ -148,7 +148,8 @@ CMDLINE="$BOOT/cmdline.txt"
 if [ -f "$CMDLINE" ]; then
   if ! grep -q "init_resize" "$CMDLINE"; then
     log "Adding init_resize.sh to cmdline.txt..."
-    sed -i 's|$| init=/usr/lib/raspi-config/init_resize.sh|' "$CMDLINE"
+    # cmdline.txt is a single line; append the init= parameter
+    printf ' init=/usr/lib/raspi-config/init_resize.sh' >> "$CMDLINE"
   else
     log "init_resize.sh already in cmdline.txt"
   fi
@@ -180,6 +181,7 @@ done
 # partition creates a user on first boot.  Format: username:password-hash
 # Default credentials: pi / raspberry
 log "Creating default user account (pi/raspberry)..."
+log "  ⚠ IMPORTANT: Change the default password after first login!"
 # Generate the password hash for 'raspberry'
 PASS_HASH='$6$rBoByrWRKMY1EHFy$k3LnTRpQ0OhJsNDwjMy3VjXcRbZ.r5xR.aRIwTnnr7FRvBcbns7x7KpSKLJzrdMG8E9chlVLXDgLo0T4tEYAL/'
 echo "pi:${PASS_HASH}" > "$BOOT/userconf.txt"
@@ -282,7 +284,7 @@ for i in $(seq 1 45); do
   sleep 2
 done
 
-if ! ping -c1 -W3 8.8.8.8 &>/dev/null; then
+if ! ping -c1 -W3 8.8.8.8 &>/dev/null && ! ping -c1 -W3 1.1.1.1 &>/dev/null; then
   echo "ERROR: No internet connectivity after 90 s."
   echo "Connect the device to a router with internet access and reboot."
   exit 1
@@ -382,18 +384,7 @@ DHCPCD
   fi
 fi
 
-# Configure NetworkManager (used by RPi OS Bookworm) to manage eth0 via DHCP
-NM_DIR="$ROOT/etc/NetworkManager/conf.d"
-mkdir -p "$NM_DIR"
-cat > "$NM_DIR/10-xnav-eth0.conf" << 'NMCONF'
-[connection-eth0]
-match-device=interface-name:eth0
-ipv4.method=auto
-ipv6.method=auto
-connection.autoconnect=yes
-NMCONF
-
-# Create a NetworkManager connection profile for eth0
+# Create a NetworkManager connection profile for eth0 (used by RPi OS Bookworm)
 NM_CONN_DIR="$ROOT/etc/NetworkManager/system-connections"
 mkdir -p "$NM_CONN_DIR"
 cat > "$NM_CONN_DIR/eth0.nmconnection" << 'NMCONN'
