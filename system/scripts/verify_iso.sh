@@ -11,7 +11,7 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-IMG_FILE="${1:-xnav-1.1.0.img.xz}"
+IMG_FILE="${1:-xnav-1.2.0.img.xz}"
 
 if [ ! -f "$IMG_FILE" ]; then
   echo "ERROR: Image file not found: $IMG_FILE"
@@ -96,8 +96,8 @@ else
   check "First-boot script installs packages from bundled wheels"
 fi
 
-grep -q "systemctl start xnav-dashboard.service\|systemctl restart xnav-dashboard.service" "$ROOT/etc/xnav/first_boot.sh"
-check "First-boot script starts dashboard"
+grep -q "systemctl start xnav-dashboard.service\|systemctl restart xnav-dashboard.service\|xnav-firstboot-ok" "$ROOT/etc/xnav/first_boot.sh"
+check "First-boot script has completion marker"
 
 # Check pre-downloaded wheels for offline installation
 log "Checking offline package wheelhouse..."
@@ -155,6 +155,41 @@ check "Camera enabled in config.txt"
 grep -q "disable_camera_led=1" "$WORK_DIR/mnt/boot/config.txt"
 check "Camera LED disabled"
 
+# Check SSH enablement
+log "Checking SSH configuration..."
+[ -f "$WORK_DIR/mnt/boot/ssh" ]
+check "SSH marker file exists in boot partition"
+
+# Check user configuration
+log "Checking user configuration..."
+[ -f "$WORK_DIR/mnt/boot/userconf.txt" ]
+check "userconf.txt exists in boot partition"
+
+grep -q "^pi:" "$WORK_DIR/mnt/boot/userconf.txt"
+check "Default 'pi' user configured"
+
+# Check root partition expansion service
+log "Checking root partition expansion..."
+[ -f "$ROOT/etc/xnav/expand_rootfs.sh" ]
+check "Root expansion script exists"
+
+[ -x "$ROOT/etc/xnav/expand_rootfs.sh" ]
+check "Root expansion script is executable"
+
+[ -f "$ROOT/etc/systemd/system/xnav-expand-rootfs.service" ]
+check "xnav-expand-rootfs.service exists"
+
+[ -L "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-expand-rootfs.service" ]
+check "xnav-expand-rootfs.service is enabled"
+
+# Check that init_resize.sh is in cmdline.txt
+if [ -f "$WORK_DIR/mnt/boot/cmdline.txt" ]; then
+  grep -q "init_resize\.sh" "$WORK_DIR/mnt/boot/cmdline.txt"
+  check "cmdline.txt has init_resize.sh"
+else
+  echo "  ⚠ cmdline.txt not found in boot partition"
+fi
+
 # Check rc.local
 log "Checking rc.local..."
 if [ -f "$ROOT/etc/rc.local" ]; then
@@ -168,9 +203,17 @@ fi
 log "Checking network configuration..."
 if [ -f "$ROOT/etc/network/interfaces.d/eth0" ]; then
   grep -q "iface eth0 inet dhcp" "$ROOT/etc/network/interfaces.d/eth0"
-  check "Network config uses DHCP"
+  check "ifupdown network config uses DHCP"
 else
-  echo "  ⚠ Network config file not found (will use system default)"
+  echo "  ⚠ ifupdown network config file not found (will use system default)"
+fi
+
+# Check NetworkManager configuration
+if [ -f "$ROOT/etc/NetworkManager/system-connections/eth0.nmconnection" ]; then
+  grep -q "method=auto" "$ROOT/etc/NetworkManager/system-connections/eth0.nmconnection"
+  check "NetworkManager eth0 profile uses DHCP (auto)"
+else
+  echo "  ⚠ NetworkManager connection profile not found"
 fi
 
 # Check Limelight 3 ethernet driver config

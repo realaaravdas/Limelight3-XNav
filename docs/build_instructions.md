@@ -83,25 +83,34 @@ The following are copied to the image:
 
 #### 4. First-Boot Setup (on device)
 
-On first power-on, `xnav-firstboot.service` (a systemd oneshot unit) automatically:
+On first power-on, the device automatically:
 
-1. Brings up the RTL8153 USB ethernet (`eth0`) via DHCP
-2. Waits up to 60 s for internet connectivity
-3. Installs system packages via apt: `firmware-realtek`, `python3-opencv`, `python3-numpy`, `python3-rpi.gpio`, `python3-venv`, `python3-pip`
-4. Creates a Python venv at `/opt/xnav/venv/` with `--system-site-packages`
-5. pip-installs `dt-apriltags`, `pyntcore`, `flask`, `flask-socketio`
-6. Caches web dashboard vendor files for offline use
-7. Logs progress to `/var/log/xnav-firstboot.log`
+1. **Expands the root partition** to fill the entire disk via `init_resize.sh` (with `xnav-expand-rootfs.service` as backup)
+2. **Enables SSH** and creates the default user (`pi` / `raspberry`)
+3. Brings up the RTL8153 USB ethernet (`eth0`) via DHCP
+4. Waits up to 90 s for internet connectivity
+5. Installs system packages via apt: `firmware-realtek`, `python3-opencv`, `python3-numpy`, `python3-rpi.gpio`, `python3-venv`, `python3-pip`, `avahi-daemon`
+6. Creates a Python venv at `/opt/xnav/venv/` with `--system-site-packages`
+7. pip-installs `dt-apriltags`, `pyntcore`, `flask`, `flask-socketio`
+8. Caches web dashboard vendor files for offline use
+9. Logs progress to `/var/log/xnav-firstboot.log`
 
 **Important:** The first boot requires internet. Connect to a router with internet access. After first boot the device works fully offline on the robot intranet.
 
-On every subsequent boot, systemd detects `/opt/xnav/venv` exists and skips `xnav-firstboot.service` instantly, so the XNav services start right away.
+**Default credentials:** `pi` / `raspberry` — change the password after first login.
+
+On every subsequent boot, systemd detects `/opt/xnav/venv` exists and skips `xnav-firstboot.service` instantly, so the XNav services start right away. If first-boot fails partway through, the partial venv is cleaned up automatically so the service retries on the next reboot.
 
 **First-boot time:** ~3–5 minutes
 
 ### Service Architecture
 
-XNav runs three systemd services:
+XNav runs four systemd services:
+
+#### xnav-expand-rootfs.service
+- **Purpose:** Expands root partition to fill disk (backup for init_resize.sh)
+- **Type:** oneshot (runs only when `/var/lib/xnav/.rootfs-expanded` is absent)
+- **Must complete before:** xnav-firstboot
 
 #### xnav-firstboot.service
 - **Purpose:** One-time internet install of Python packages (runs only when `/opt/xnav/venv` is absent)
@@ -198,15 +207,21 @@ sync
 ## First Boot
 
 > **Internet required on first boot.** Connect the device to a router with internet access. After first boot the device works fully offline on the robot intranet.
+> 
+> **Default credentials:** `pi` / `raspberry`
 
 After flashing and powering on the device:
 
 1. **Connect to a router with internet access** via Ethernet
-2. Apply power — `xnav-firstboot.service` starts automatically
+2. Apply power — the device will automatically:
+   - Expand the root partition to fill the disk
+   - Enable SSH and create the default user
+   - Run `xnav-firstboot.service` to install packages
 3. **Wait 3–5 minutes** for first-boot setup to complete
 4. Check status via SSH:
    ```bash
    ssh pi@xnav.local
+   # password: raspberry
    sudo journalctl -u xnav-firstboot.service -f
    # or
    sudo tail -f /var/log/xnav-firstboot.log
@@ -214,7 +229,7 @@ After flashing and powering on the device:
 5. Access web dashboard: `http://xnav.local:5800`
 6. Configure your team number and other settings
 
-On every subsequent boot (including on the robot's intranet) the device starts immediately — the firstboot service is skipped automatically.
+On every subsequent boot (including on the robot's intranet) the device starts immediately — the firstboot service is skipped automatically. If first boot fails (e.g. no internet), it will retry automatically on next reboot.
 
 ### First-Boot Status Indicators
 
@@ -225,9 +240,11 @@ On every subsequent boot (including on the robot's intranet) the device starts i
 - Dashboard accessible at port 5800
 
 **Issues:**
+- Root partition not expanded: Check `sudo journalctl -u xnav-expand-rootfs.service`
 - Services fail to start: Check `sudo journalctl -u xnav-firstboot.service`
-- "No internet connectivity" error: Ensure Ethernet is connected to a www router
+- "No internet connectivity" error: Ensure Ethernet is connected to a www router; reboot to retry
 - Dashboard not accessible: See [Troubleshooting Guide](troubleshooting.md)
+- Can't SSH in: Ensure you're using `pi@xnav.local` with password `raspberry`
 
 ## Version Information
 

@@ -8,7 +8,7 @@
 
 set -e
 
-XNAV_VERSION="1.1.0"
+XNAV_VERSION="1.2.0"
 OUTPUT_IMG="xnav-${XNAV_VERSION}.img"
 WORK_DIR="/tmp/xnav-build"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -103,6 +103,7 @@ resize2fs "${LOOP}p2"
 # ── Inject XNav files ────────────────────────────────────────────────────────
 log "Injecting XNav files..."
 ROOT="$WORK_DIR/mnt/root"
+BOOT="$WORK_DIR/mnt/boot"
 mkdir -p "$ROOT/opt/xnav"
 mkdir -p "$ROOT/etc/xnav"
 
@@ -128,6 +129,62 @@ echo "r8152" > "$ROOT/etc/modules-load.d/usb-ethernet.conf"
 # Copy network setup helper script
 cp "$REPO_ROOT/system/scripts/setup_network.sh" "$ROOT/opt/xnav/"
 chmod +x "$ROOT/opt/xnav/setup_network.sh"
+
+# ── Root partition expansion (first boot) ─────────────────────────────────────
+# The image is shrunk to minimum size for fast flashing.  On first boot, the
+# root partition must be expanded to fill the target disk.  init_resize.sh from
+# the base RPi OS image handles this in most cases, but we also install our own
+# backup service for devices (e.g., eMMC via rpiboot) where init_resize.sh may
+# not run.
+log "Installing root partition expansion service..."
+cp "$REPO_ROOT/system/scripts/expand_rootfs.sh" "$ROOT/etc/xnav/expand_rootfs.sh"
+chmod +x "$ROOT/etc/xnav/expand_rootfs.sh"
+cp "$REPO_ROOT/system/services/xnav-expand-rootfs.service" "$ROOT/etc/systemd/system/"
+ln -sf /etc/systemd/system/xnav-expand-rootfs.service \
+  "$ROOT/etc/systemd/system/multi-user.target.wants/xnav-expand-rootfs.service" 2>/dev/null || true
+
+# Ensure init_resize.sh is referenced in cmdline.txt (belt-and-suspenders)
+CMDLINE="$BOOT/cmdline.txt"
+if [ -f "$CMDLINE" ]; then
+  if ! grep -q "init_resize" "$CMDLINE"; then
+    log "Adding init_resize.sh to cmdline.txt..."
+    # cmdline.txt is a single line; append the init= parameter
+    printf ' init=/usr/lib/raspi-config/init_resize.sh' >> "$CMDLINE"
+  else
+    log "init_resize.sh already in cmdline.txt"
+  fi
+else
+  log "WARN: cmdline.txt not found in boot partition"
+fi
+
+# ── Enable SSH ────────────────────────────────────────────────────────────────
+# RPi OS disables SSH by default.  An empty file named "ssh" on the boot
+# partition tells the init system to enable and start the SSH server.
+log "Enabling SSH..."
+touch "$BOOT/ssh"
+
+# Also enable the SSH service directly via symlink so it persists
+mkdir -p "$ROOT/etc/systemd/system/sshd.service.wants" \
+         "$ROOT/etc/systemd/system/multi-user.target.wants"
+# ssh.service is the canonical name on RPi OS
+for SVC in ssh sshd; do
+  SVC_FILE="$ROOT/lib/systemd/system/${SVC}.service"
+  if [ -f "$SVC_FILE" ]; then
+    ln -sf "$SVC_FILE" \
+      "$ROOT/etc/systemd/system/multi-user.target.wants/${SVC}.service" 2>/dev/null || true
+    log "  Enabled ${SVC}.service"
+  fi
+done
+
+# ── Create default user account ──────────────────────────────────────────────
+# RPi OS Bookworm removed the default 'pi' user.  userconf.txt on the boot
+# partition creates a user on first boot.  Format: username:password-hash
+# Default credentials: pi / raspberry
+log "Creating default user account (pi/raspberry)..."
+log "  ⚠ IMPORTANT: Change the default password after first login!"
+# Generate the password hash for 'raspberry'
+PASS_HASH='$6$rBoByrWRKMY1EHFy$k3LnTRpQ0OhJsNDwjMy3VjXcRbZ.r5xR.aRIwTnnr7FRvBcbns7x7KpSKLJzrdMG8E9chlVLXDgLo0T4tEYAL/'
+echo "pi:${PASS_HASH}" > "$BOOT/userconf.txt"
 
 # ── Download web dashboard vendor files for offline use ───────────────────────
 log "Downloading web dashboard vendor files for offline use..."
@@ -163,7 +220,9 @@ cat > "$ROOT/etc/xnav/first_boot.sh" << 'FIRSTBOOT'
 # Runs ONCE on first boot (via xnav-firstboot.service) to install Python
 # packages from the internet.  Subsequent boots skip this entirely because
 # xnav-firstboot.service has ConditionPathExists=!/opt/xnav/venv.
-set -e
+#
+# If this script fails partway through, the partially-created venv is cleaned
+# up so the service can try again on the next reboot.
 
 FIRSTBOOT_LOG="/var/log/xnav-firstboot.log"
 exec > >(tee -a "$FIRSTBOOT_LOG") 2>&1
@@ -172,36 +231,61 @@ echo "========================================="
 echo "XNav First-Boot Setup - $(date)"
 echo "========================================="
 
+# Clean up partial venv from a previous failed attempt
+if [ -d /opt/xnav/venv ] && [ ! -f /opt/xnav/venv/.xnav-firstboot-ok ]; then
+  echo "Cleaning up partial venv from previous failed attempt..."
+  rm -rf /opt/xnav/venv
+fi
+
+# Trap: if the script exits with an error, remove the partial venv so the
+# ConditionPathExists guard allows the service to retry on the next boot.
+cleanup_on_failure() {
+  if [ ! -f /opt/xnav/venv/.xnav-firstboot-ok ]; then
+    echo "ERROR: First-boot setup failed — cleaning up partial venv for retry."
+    rm -rf /opt/xnav/venv
+  fi
+}
+trap cleanup_on_failure EXIT
+
+set -e
+
 # ── Ensure Limelight 3 ethernet is up ───────────────────────────────────────
 echo "Bringing up eth0 (RTL8153 USB ethernet)..."
 modprobe r8152 2>/dev/null || true
 ip link set eth0 up 2>/dev/null || true
 
-echo "Waiting for eth0 to get a DHCP address (up to 60 s)..."
-for i in $(seq 1 30); do
+# Kick DHCP client in case NetworkManager hasn't acquired a lease yet
+if command -v dhcpcd &>/dev/null; then
+  dhcpcd -n eth0 2>/dev/null || true
+elif command -v dhclient &>/dev/null; then
+  dhclient eth0 2>/dev/null || true
+fi
+
+echo "Waiting for eth0 to get a DHCP address (up to 90 s)..."
+for i in $(seq 1 45); do
   if ip addr show eth0 2>/dev/null | grep -q "inet "; then
-    echo "eth0 is up."
+    echo "eth0 is up: $(ip -4 addr show eth0 | grep inet | awk '{print $2}')"
     break
   fi
   sleep 2
 done
 
 if ! ip addr show eth0 2>/dev/null | grep -q "inet "; then
-  echo "WARN: eth0 has no IP address after 60 s. Proceeding anyway (DHCP may still be negotiating)."
+  echo "WARN: eth0 has no IP address after 90 s. Proceeding anyway."
 fi
 
 # ── Wait for internet connectivity ──────────────────────────────────────────
-echo "Waiting for internet connectivity (up to 60 s)..."
-for i in $(seq 1 30); do
-  if ping -c1 -W3 8.8.8.8 &>/dev/null; then
+echo "Waiting for internet connectivity (up to 90 s)..."
+for i in $(seq 1 45); do
+  if ping -c1 -W3 8.8.8.8 &>/dev/null || ping -c1 -W3 1.1.1.1 &>/dev/null; then
     echo "Internet reachable."
     break
   fi
   sleep 2
 done
 
-if ! ping -c1 -W3 8.8.8.8 &>/dev/null; then
-  echo "ERROR: No internet connectivity after 60 s."
+if ! ping -c1 -W3 8.8.8.8 &>/dev/null && ! ping -c1 -W3 1.1.1.1 &>/dev/null; then
+  echo "ERROR: No internet connectivity after 90 s."
   echo "Connect the device to a router with internet access and reboot."
   exit 1
 fi
@@ -214,6 +298,9 @@ apt-get update -qq
 # Ethernet firmware (improves RTL8153B stability on some units)
 apt-get install -y --no-install-recommends firmware-realtek
 
+# Install cloud-guest-utils for growpart (used by rootfs expansion service)
+apt-get install -y --no-install-recommends cloud-guest-utils 2>/dev/null || true
+
 # Python packages via apt — avoids bundling large pip wheels in the image.
 # python3-opencv (~4.6 from RPi OS Bookworm) covers all cv2 usage.
 apt-get install -y --no-install-recommends \
@@ -221,7 +308,8 @@ apt-get install -y --no-install-recommends \
   python3-numpy \
   python3-rpi.gpio \
   python3-venv \
-  python3-pip
+  python3-pip \
+  avahi-daemon
 
 # Remove apt cache to keep the device disk usage low
 apt-get clean
@@ -251,6 +339,10 @@ curl -sL "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-ico
 curl -sL "https://cdn.jsdelivr.net/npm/socket.io@4.7.4/client-dist/socket.io.min.js" \
   -o "$VENDOR_DIR/socket.io.min.js" || true
 
+# Mark first-boot as fully complete — prevents cleanup_on_failure from removing
+# the venv if the script exits successfully.
+touch /opt/xnav/venv/.xnav-firstboot-ok
+
 echo "========================================="
 echo "First-boot setup complete! - $(date)"
 echo "Dashboard: http://xnav.local:5800"
@@ -271,7 +363,7 @@ gpu_mem=128
 disable_camera_led=1
 BOOTEOF
 
-# Network configuration - use DHCP for eth0
+# Network configuration - ensure DHCP works regardless of network manager
 mkdir -p "$ROOT/etc/network/interfaces.d"
 NETWORK_CFG="$ROOT/etc/network/interfaces.d/eth0"
 cat > "$NETWORK_CFG" << 'NETEOF'
@@ -279,6 +371,42 @@ cat > "$NETWORK_CFG" << 'NETEOF'
 auto eth0
 iface eth0 inet dhcp
 NETEOF
+
+# Also configure dhcpcd (used by some RPi OS variants)
+if [ -f "$ROOT/etc/dhcpcd.conf" ]; then
+  if ! grep -q "interface eth0" "$ROOT/etc/dhcpcd.conf"; then
+    cat >> "$ROOT/etc/dhcpcd.conf" << 'DHCPCD'
+
+# XNav: ensure DHCP on eth0
+interface eth0
+  # Use DHCP (default behaviour, but be explicit)
+DHCPCD
+  fi
+fi
+
+# Create a NetworkManager connection profile for eth0 (used by RPi OS Bookworm)
+NM_CONN_DIR="$ROOT/etc/NetworkManager/system-connections"
+mkdir -p "$NM_CONN_DIR"
+cat > "$NM_CONN_DIR/eth0.nmconnection" << 'NMCONN'
+[connection]
+id=eth0
+type=ethernet
+interface-name=eth0
+autoconnect=true
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+NMCONN
+chmod 600 "$NM_CONN_DIR/eth0.nmconnection"
+
+# Enable avahi-daemon for mDNS (.local hostname resolution)
+if [ -f "$ROOT/lib/systemd/system/avahi-daemon.service" ]; then
+  ln -sf /lib/systemd/system/avahi-daemon.service \
+    "$ROOT/etc/systemd/system/multi-user.target.wants/avahi-daemon.service" 2>/dev/null || true
+fi
 
 # ── Shrink filesystem & cleanup ───────────────────────────────────────────────
 log "Unmounting filesystems..."
