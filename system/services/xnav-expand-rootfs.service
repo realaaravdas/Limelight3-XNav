@@ -1,0 +1,18 @@
+[Unit]
+Description=XNav Root Partition Expansion
+Documentation=https://github.com/realaaravdas/Limelight3-XNav
+After=local-fs.target
+Before=xnav-firstboot.service
+# Only run if we haven't already expanded
+ConditionPathExists=!/var/lib/xnav/.rootfs-expanded
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash /etc/xnav/expand_rootfs.sh
+TimeoutStartSec=120
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

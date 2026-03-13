@@ -1,7 +1,7 @@
 [Unit]
 Description=XNav First-Boot Package Installation
 Documentation=https://github.com/realaaravdas/Limelight3-XNav
-After=network-online.target
+After=network-online.target xnav-expand-rootfs.service
 Wants=network-online.target
 # Only run if the Python venv has not been created yet.
 # On every subsequent boot this condition fails and systemd skips the unit

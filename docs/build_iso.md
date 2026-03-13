@@ -67,7 +67,7 @@ The script will:
 ### Expected output
 
 ```
-[BUILD] XNav ISO Builder v1.1.0
+[BUILD] XNav ISO Builder v1.2.0
 [BUILD] Repo: /opt/xnav-src
 [BUILD] Using image injection method...
 [BUILD] Downloading base Raspberry Pi OS Lite (64-bit)...
@@ -79,9 +79,9 @@ The script will:
 [BUILD] Image size after shrink: ~1900 MiB
 [BUILD] Compressing image...
 [BUILD] ═══════════════════════════════════════════
-[BUILD]   Build complete: xnav-1.1.0.img.xz
+[BUILD]   Build complete: xnav-1.2.0.img.xz
 [BUILD]   Flash with: rpi-imager or
-[BUILD]     xzcat xnav-1.1.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+[BUILD]     xzcat xnav-1.2.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
 [BUILD] ═══════════════════════════════════════════
 ```
 
@@ -98,13 +98,13 @@ The script will:
 
 The finished image is written to:
 ```
-/tmp/xnav-build/xnav-1.1.0.img.xz
+/tmp/xnav-build/xnav-1.2.0.img.xz
 ```
 
 Copy it somewhere convenient before flashing:
 
 ```bash
-cp /tmp/xnav-build/xnav-1.1.0.img.xz ~/Desktop/
+cp /tmp/xnav-build/xnav-1.2.0.img.xz ~/Desktop/
 ```
 
 ---
@@ -142,7 +142,7 @@ The Limelight 3 uses a Raspberry Pi Compute Module 4 (CM4) with eMMC storage. To
 ### 3c — Flash the Image
 
 1. Open **balenaEtcher**.
-2. Click **Flash from file** → select `xnav-1.1.0.img.xz`.
+2. Click **Flash from file** → select `xnav-1.2.0.img.xz`.
    - balenaEtcher can flash `.xz` compressed images directly — no need to decompress first.
 3. Click **Select target** → choose the Limelight 3 / CM4 eMMC drive.
    - **Double-check you have the correct drive** — all data on the target will be erased.
@@ -159,15 +159,22 @@ The Limelight 3 uses a Raspberry Pi Compute Module 4 (CM4) with eMMC storage. To
 
 ## Step 4 — First Boot
 
-> **Important:** On first boot the device must be connected to a router/switch that has internet access (www). It will automatically download and install all Python packages (~300 MB). After that it works fully offline on your robot's intranet — no internet needed.
+> **Important:** On first boot the device must be connected to a router/switch that has internet access (www). It will automatically expand the root partition, download and install all Python packages (~300 MB). After that it works fully offline on your robot's intranet — no internet needed.
+
+> **Default credentials:** `pi` / `raspberry` — change the password after first login.
 
 1. Connect the Limelight 3 to a router **with internet access** via Ethernet.
 2. Apply power.
-3. Wait **3–5 minutes** for `xnav-firstboot.service` to complete.
+3. The device will automatically:
+   - **Expand the root partition** to fill the entire disk (via `init_resize.sh` or `xnav-expand-rootfs.service`)
+   - **Enable SSH** for remote access
+   - **Create the default user** (`pi` / `raspberry`)
+   - **Install packages** via `xnav-firstboot.service` (~3–5 minutes)
+4. Wait **3–5 minutes** for `xnav-firstboot.service` to complete.
    - The service installs `firmware-realtek`, `python3-opencv`, `dt-apriltags`, `pyntcore`, `flask`, and `flask-socketio`.
    - Progress is logged to `/var/log/xnav-firstboot.log`.
-4. On every subsequent boot (including on the robot's intranet) the device starts immediately — no install step.
-5. Open a browser and navigate to:
+5. On every subsequent boot (including on the robot's intranet) the device starts immediately — no install step.
+6. Open a browser and navigate to:
    - `http://xnav.local:5800` (mDNS)
    - or `http://<device-ip>:5800`
 
@@ -195,7 +202,10 @@ sudo tail -f /var/log/xnav-firstboot.log
 | CM4 not detected as USB drive | Ensure the BOOT jumper is bridged and power was cycled **after** connecting USB |
 | balenaEtcher shows drive is locked | Make sure no partition on the drive is mounted: `sudo umount /dev/sdX*` |
 | Dashboard not reachable after first boot | First boot needs internet — ensure the Ethernet is connected to a www router; check `sudo journalctl -u xnav-firstboot.service` |
-| First-boot fails "No internet connectivity" | Device couldn't reach 8.8.8.8 within 60 s; connect to a router with internet and reboot |
+| First-boot fails "No internet connectivity" | Device couldn't reach 8.8.8.8 within 90 s; connect to a router with internet and reboot |
+| Root partition not expanding | Check `sudo journalctl -u xnav-expand-rootfs.service`; the backup service runs if `init_resize.sh` didn't work |
+| Can't SSH into device | Default credentials are `pi` / `raspberry`; SSH is enabled automatically via boot partition marker file |
+| Device not found on network | Verify ethernet cable and router; check if the device has an IP with `ip addr show eth0` via serial console |
 
 ---
 
@@ -204,7 +214,7 @@ sudo tail -f /var/log/xnav-firstboot.log
 If you prefer not to use balenaEtcher:
 
 ```bash
-xzcat /tmp/xnav-build/xnav-1.1.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
+xzcat /tmp/xnav-build/xnav-1.2.0.img.xz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
 Replace `/dev/sdX` with the correct target device (e.g. `/dev/sdb`). **Verify the device name carefully.**
@@ -214,6 +224,6 @@ Replace `/dev/sdX` with the correct target device (e.g. `/dev/sdb`). **Verify th
 ## Alternative: Flash with Raspberry Pi Imager
 
 1. Open [Raspberry Pi Imager](https://www.raspberrypi.com/software/).
-2. Under **Operating System** → choose **Use custom** → select `xnav-1.1.0.img.xz`.
+2. Under **Operating System** → choose **Use custom** → select `xnav-1.2.0.img.xz`.
 3. Under **Storage** → select the CM4 eMMC / SD card.
 4. Click **Write**.
